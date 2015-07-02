@@ -1,0 +1,19 @@
+{
+  "name": "purescript-markdown-halogen",
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "bower_components",
+    "node_modules",
+    "output",
+    "example",
+    "test",
+    "bower.json",
+    "gulpfile.js",
+    "package.json"
+  ],
+  "dependencies": {
+    "purescript-markdown": "~1.5.0",
+    "purescript-halogen": "b1636e2537526963f89134c7b4fd8005c1b62e37"
+  }
+}
