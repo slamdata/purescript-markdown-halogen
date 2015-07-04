@@ -37,13 +37,13 @@ instance showSlamDownState :: Show SlamDownState
 ```
 
 
-#### `emptySlamDownState`
+#### `initSlamDownState`
 
 ``` purescript
-emptySlamDownState :: SlamDownState
+initSlamDownState :: SlamDown -> SlamDownState
 ```
 
-The state of an empty form, in which all fields use their default values
+The initial state of form, in which all fields use their default values
 
 #### `SlamDownEvent`
 
