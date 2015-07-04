@@ -4,32 +4,27 @@ module Text.Markdown.SlamDown.Html
   ( SlamDownEvent()
   , SlamDownState(..)
   , FormFieldValue(..)
-  , emptySlamDownState
+  , initSlamDownState
   , applySlamDownEvent
   , renderHalogen
   )
   where
 
-import Data.Maybe
-import Data.Array (concat, map, concatMap, zipWith)
-import Data.String (joinWith)
-import Data.Foldable (foldMap)
-import Data.Traversable (traverse, zipWithA)
-import Data.Identity
-
-import qualified Data.StrMap as M
-import qualified Data.Set as S
-
-import Control.Alternative
+import Control.Alternative (Alternative)
 import Control.Monad.State (State(), evalState)
 import Control.Monad.State.Class (get, modify)
 
+import Data.Array (concat, zipWith, mapMaybe)
+import Data.Maybe (Maybe(..), maybe)
+import Data.Monoid (mempty)
+import Data.String (joinWith)
+import Data.Tuple (Tuple(..), zip)
+import Data.Traversable (traverse, zipWithA)
+
 import Text.Markdown.SlamDown
-import Text.Markdown.SlamDown.Parser
 
-import Halogen
-import Halogen.HTML.Renderer.String (renderHTMLToString)
-
+import qualified Data.Set as S
+import qualified Data.StrMap as M
 import qualified Halogen.HTML as H
 import qualified Halogen.HTML.Attributes as A
 import qualified Halogen.HTML.Events as E
@@ -49,9 +44,23 @@ newtype SlamDownState = SlamDownState (M.StrMap FormFieldValue)
 instance showSlamDownState :: Show SlamDownState where
   show (SlamDownState m) = "(SlamDownState " ++ show m ++ ")"
 
--- | The state of an empty form, in which all fields use their default values
-emptySlamDownState :: SlamDownState
-emptySlamDownState = SlamDownState M.empty
+-- | The initial state of form, in which all fields use their default values
+initSlamDownState :: SlamDown -> SlamDownState
+initSlamDownState = SlamDownState <<< M.fromList <<< everything (const mempty) go
+  where
+  go :: Inline -> [Tuple String FormFieldValue]
+  go (FormField label _ field) = maybe [] (\v -> [Tuple label v]) $ getValue field
+  go _ = []
+
+  getValue :: FormField -> Maybe FormFieldValue
+  getValue (TextBox tbt (Just (Literal value))) = Just $ SingleValue tbt value
+  getValue (CheckBoxes (Literal sels) (Literal vals)) = Just $ MultipleValues $ S.fromList $ chk `mapMaybe` zip sels vals
+    where
+    chk (Tuple true value) = Just value
+    chk _ = Nothing
+  getValue (RadioButtons (Literal value) _) = Just $ SingleValue PlainText value
+  getValue (DropDown _ (Just (Literal value))) = Just $ SingleValue PlainText value
+  getValue _ = Nothing
 
 -- | The type of events which can be raised by SlamDown forms
 data SlamDownEvent
@@ -137,18 +146,10 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
       _ -> true
 
   renderFormElement :: String -> String -> FormField -> Fresh (H.HTML (f SlamDownEvent))
-  renderFormElement id label (TextBox t (Literal value)) =
-    pure $ H.input [ A.type_ type'
-                   , A.id_ id
-                   , A.name label
-                   , A.value (lookupTextValue label value)
-                   , E.onInput (E.input (TextChanged t label))
-                   ] []
-    where type' = case t of
-            PlainText -> "text"
-            Date -> "date"
-            Time -> "time"
-            DateTime -> "datetime-local"
+  renderFormElement id label (TextBox t Nothing) =
+    pure $ renderTextInput id label t (lookupTextValue label "")
+  renderFormElement id label (TextBox t (Just (Literal value))) =
+    pure $ renderTextInput id label t (lookupTextValue label value)
   renderFormElement _ label (RadioButtons (Literal def) (Literal ls)) =
     H.ul_ <$> traverse (\val -> radio (val == sel) val) (def : ls)
     where
@@ -178,16 +179,11 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
                              ] []
                    , H.label [ A.for id ] [ H.text value ]
                    ]
-  renderFormElement id label (DropDown (Literal ls) (Literal sel)) = do
-    pure $ H.select [ A.id_ id
-                    , A.name label
-                    , E.onInput (E.input (TextChanged PlainText label))
-                    ]
-                    $ map option ls
-    where
-    sel' = lookupTextValue label sel
-    option value = H.option [ A.selected (value == sel'), A.value value ] [ H.text value ]
-  renderFormElement _ _ _ = pure $ H.text "Unsupported form element"
+  renderFormElement id label (DropDown (Literal ls) Nothing) = do
+    pure $ renderDropDown id label ("" : ls) Nothing
+  renderFormElement id label (DropDown (Literal ls) (Just (Literal sel))) = do
+    pure $ renderDropDown id label ls (Just (lookupTextValue label sel))
+  renderFormElement _ _ _ = pure $ unsupportedFormElement
 
   lookupTextValue :: String -> String -> String
   lookupTextValue key def =
@@ -206,3 +202,35 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
     n <- get :: Fresh Number
     modify (+ 1)
     pure (formName ++ "-" ++ show n)
+
+renderTextInput :: forall f. (Alternative f) => String -> String -> TextBoxType -> String -> H.HTML (f SlamDownEvent)
+renderTextInput id label t value =
+  H.input [ A.type_ (textBoxTypeName t)
+          , A.id_ id
+          , A.name label
+          , A.value value
+          , E.onInput (E.input (TextChanged t label))
+          ] []
+
+renderDropDown :: forall f. (Alternative f) => String -> String -> [String] -> Maybe String -> H.HTML (f SlamDownEvent)
+renderDropDown id label ls sel =
+  H.select [ A.id_ id
+           , A.name label
+           , E.onValueChanged (E.input (TextChanged PlainText label))
+           ]
+           $ maybe option option' sel <$> ls
+  where
+  option :: String -> H.HTML (f SlamDownEvent)
+  option value = H.option [ A.value value ] [ H.text value ]
+  option' :: String -> String -> H.HTML (f SlamDownEvent)
+  option' sel value = H.option [ A.selected (value == sel), A.value value ] [ H.text value ]
+
+textBoxTypeName :: TextBoxType -> String
+textBoxTypeName t = case t of
+  PlainText -> "text"
+  Date -> "date"
+  Time -> "time"
+  DateTime -> "datetime-local"
+
+unsupportedFormElement :: forall a. H.HTML a
+unsupportedFormElement = H.text "Unsupported form element"

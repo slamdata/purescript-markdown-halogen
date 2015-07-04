@@ -13,7 +13,7 @@
     "package.json"
   ],
   "dependencies": {
-    "purescript-markdown": "~1.5.0",
+    "purescript-markdown": "~1.5.2",
     "purescript-halogen": "b1636e2537526963f89134c7b4fd8005c1b62e37"
   }
 }

@@ -1,8 +1,11 @@
 module Main where
 
+import Data.Array ((\\))
 import Data.Void
 import Data.Tuple
 import Data.Either
+import Data.Foldable
+import qualified Data.StrMap as SM
 
 import DOM
 
@@ -40,7 +43,7 @@ data Input
   | FormFieldChanged SlamDownEvent
 
 ui :: forall f eff. (Alternative f) => Component f Input Input
-ui = render <$> stateful (State "" emptySlamDownState) update
+ui = render <$> stateful (State "" (initSlamDownState $ SlamDown [])) update
   where
   render :: State -> H.HTML (f Input)
   render (State md form) =
@@ -60,7 +63,14 @@ ui = render <$> stateful (State "" emptySlamDownState) update
   output md form = ((FormFieldChanged <$>) <$>) <$> renderHalogen "slamdown-example" form (parseMd md)
 
   update :: State -> Input -> State
-  update (State _ form) (DocumentChanged md) = State md form
+  update (State _ (SlamDownState form)) (DocumentChanged md) =
+    let slamdown = parseMd md
+    in case initSlamDownState slamdown of
+      SlamDownState emptyForm ->
+        let currentKeys = SM.keys emptyForm
+            oldKeys = SM.keys form \\ currentKeys
+            newForm = foldl (\f k -> SM.delete k f) (form `SM.union` emptyForm) oldKeys
+        in State md (SlamDownState newForm)
   update (State s form) (FormFieldChanged e) = State s (applySlamDownEvent form e)
 
 main = do
