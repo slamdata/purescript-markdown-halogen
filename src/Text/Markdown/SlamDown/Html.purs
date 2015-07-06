@@ -134,10 +134,11 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
   renderInline (FormField label req el) = do
     id <- fresh
     el' <- renderFormElement id label el
-    pure $ H.span_ $ [ H.label (if requiresId then [ A.for id ] else [])
-                               [ H.text (label ++ requiredLabel) ]
-                     , el'
-                     ]
+    pure $ H.span [ A.class_ (A.className "slamdown-field") ]
+                  [ H.label (if requiresId then [ A.for id ] else [])
+                            [ H.text (label ++ requiredLabel) ]
+                  , el'
+                  ]
     where
     requiredLabel = if req then "*" else ""
     requiresId = case el of
@@ -151,7 +152,7 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
   renderFormElement id label (TextBox t (Just (Literal value))) =
     pure $ renderTextInput id label t (lookupTextValue label value)
   renderFormElement _ label (RadioButtons (Literal def) (Literal ls)) =
-    H.ul_ <$> traverse (\val -> radio (val == sel) val) (def : ls)
+    H.ul [ A.class_ (A.className "slamdown-radios") ] <$> traverse (\val -> radio (val == sel) val) (def : ls)
     where
     sel = lookupTextValue label def
     radio checked value = do
@@ -166,7 +167,7 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
                    , H.label [ A.for id ] [ H.text value ]
                    ]
   renderFormElement _ label (CheckBoxes (Literal bs) (Literal ls)) =
-    H.ul_ <$> zipWithA checkBox (lookupMultipleValues label bs ls) ls
+    H.ul [ A.class_ (A.className "slamdown-checkboxes") ] <$> zipWithA checkBox (lookupMultipleValues label bs ls) ls
     where
     checkBox checked value = do
       id <- fresh
