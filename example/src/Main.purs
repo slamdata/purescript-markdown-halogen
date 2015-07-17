@@ -1,6 +1,8 @@
 module Main where
 
+import Prelude
 import Data.Array ((\\))
+import Data.Monoid
 import Data.Void
 import Data.Tuple
 import Data.Either
@@ -13,6 +15,7 @@ import Data.DOM.Simple.Document
 import Data.DOM.Simple.Element
 import Data.DOM.Simple.Types
 import Data.DOM.Simple.Window
+import Data.DOM.Simple.Events
 
 import Control.Monad.Eff
 import Control.Alternative
@@ -30,6 +33,12 @@ import Text.Markdown.SlamDown
 import Text.Markdown.SlamDown.Html
 import Text.Markdown.SlamDown.Parser
 
+onLoad :: forall e. Eff (dom :: DOM | e) Unit -> Eff (dom :: DOM | e) Unit 
+onLoad action = do 
+  let handler :: DOMEvent -> _
+      handler _ = action
+  addUIEventListener LoadEvent handler globalWindow
+
 appendToBody :: forall eff. HTMLElement -> Eff (dom :: DOM | eff) Unit
 appendToBody e = do
   w <- document globalWindow
@@ -43,7 +52,7 @@ data Input
   | FormFieldChanged SlamDownEvent
 
 ui :: forall f eff. (Alternative f) => Component f Input Input
-ui = render <$> stateful (State "" (initSlamDownState $ SlamDown [])) update
+ui = render <$> stateful (State "" (initSlamDownState $ SlamDown mempty)) update
   where
   render :: State -> H.HTML (f Input)
   render (State md form) =
@@ -59,7 +68,7 @@ ui = render <$> stateful (State "" (initSlamDownState $ SlamDown [])) update
           , H.pre_ [ H.code_ [ H.text (show form) ] ]
           ]
 
-  output :: String -> SlamDownState -> [H.HTML (f Input)]
+  output :: String -> SlamDownState -> Array (H.HTML (f Input))
   output md form = ((FormFieldChanged <$>) <$>) <$> renderHalogen "slamdown-example" form (parseMd md)
 
   update :: State -> Input -> State
@@ -73,7 +82,7 @@ ui = render <$> stateful (State "" (initSlamDownState $ SlamDown [])) update
         in State md (SlamDownState newForm)
   update (State s form) (FormFieldChanged e) = State s (applySlamDownEvent form e)
 
-main = do
+main = onLoad do
   Tuple node driver <- runUI ui
   appendToBody node
 

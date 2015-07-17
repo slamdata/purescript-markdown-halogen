@@ -1,12 +1,13 @@
 {
   "name": "purescript-markdown-halogen",
   "private": true,
-  "devDependencies": {
-    "gulp": "^3.8.11",
-    "gulp-jsvalidate": "^1.0.1",
-    "gulp-purescript": "^0.4.0",
-    "purescript": "^0.6.10",
-    "rimraf": "^2.3.3",
+  "devDependencies": {},
+  "dependencies": {
+    "gulp": "^3.9.0",
+    "gulp-jsvalidate": "^2.0.0",
+    "gulp-purescript": "^0.5.0",
+    "purescript": "^0.7.1",
+    "rimraf": "^2.4.1",
     "virtual-dom": "^2.0.1",
     "webpack-stream": "^2.0.0"
   }
