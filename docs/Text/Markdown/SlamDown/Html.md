@@ -1,7 +1,4 @@
-# Module Documentation
-
 ## Module Text.Markdown.SlamDown.Html
-
 
 This module defines functions for rendering Markdown to HTML.
 
@@ -10,32 +7,27 @@ This module defines functions for rendering Markdown to HTML.
 ``` purescript
 data FormFieldValue
   = SingleValue TextBoxType String
-  | MultipleValues (S.Set String)
+  | MultipleValues (Set String)
 ```
 
-
-#### `showFormFieldValue`
-
+##### Instances
 ``` purescript
 instance showFormFieldValue :: Show FormFieldValue
 ```
-
 
 #### `SlamDownState`
 
 ``` purescript
 newtype SlamDownState
-  = SlamDownState (M.StrMap FormFieldValue)
+  = SlamDownState (StrMap FormFieldValue)
 ```
 
 The state of a SlamDown form - a mapping from input keys to values
 
-#### `showSlamDownState`
-
+##### Instances
 ``` purescript
 instance showSlamDownState :: Show SlamDownState
 ```
-
 
 #### `initSlamDownState`
 
@@ -64,10 +56,9 @@ Apply a `SlamDownEvent` to a `SlamDownState`.
 #### `renderHalogen`
 
 ``` purescript
-renderHalogen :: forall f. (Alternative f) => String -> SlamDownState -> SlamDown -> [H.HTML (f SlamDownEvent)]
+renderHalogen :: forall f. (Alternative f) => String -> SlamDownState -> SlamDown -> Array (HTML (f SlamDownEvent))
 ```
 
 Render the SlamDown AST to an arbitrary Halogen HTML representation
-
 
 

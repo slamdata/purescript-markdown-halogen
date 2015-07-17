@@ -1,10 +1,29 @@
 "use strict";
 
-var gulp = require("gulp");
-var purescript = require("gulp-purescript");
-var jsvalidate = require("gulp-jsvalidate");
-var rimraf = require("rimraf");
-var webpack = require("webpack-stream");
+var gulp = require("gulp"),
+    purescript = require("gulp-purescript"),
+    jsValidate = require("gulp-jsvalidate"),
+    rimraf = require("rimraf"),
+    webpack = require("webpack-stream");
+    
+var sources = [
+    "src/**/*.purs",
+    "bower_components/purescript-*/src/**/*.purs"
+];
+
+var foreigns = [
+    "src/**/*.js",
+    "bower_components/purescript-*/src/**/*.js"
+];
+
+var exampleSources = [
+    "example/src/**/*.purs"
+];
+
+var exampleForeigns = [
+    "example/src/**/*.js"
+];
+
 
 gulp.task("clean-docs", function (cb) {
   rimraf("docs", cb);
@@ -16,39 +35,57 @@ gulp.task("clean-output", function (cb) {
 
 gulp.task("clean", ["clean-docs", "clean-output"]);
 
+
 gulp.task("make", function() {
-  return gulp.src(["src/**/*.purs", "example/**/*.purs", "bower_components/purescript-*/src/**/*.purs"])
-    .pipe(purescript.pscMake());
+    return purescript.psc({
+        src: sources,
+        ffi: foreigns
+    });
 });
 
-gulp.task("example", ["make"], function() {
-  return gulp.src("example/src/entry.js")
-    .pipe(webpack({
-      resolve: { modulesDirectories: [ "node_modules", "output" ] },
-      output: { filename: "example.js" }
-    }))
-    .pipe(gulp.dest("example/output"));
+gulp.task("example-make", function() {
+    return purescript.psc({
+        src: sources.concat(exampleSources),
+        ffi: foreigns.concat(exampleForeigns)
+    });
 });
 
-gulp.task("jsvalidate", ["make"], function () {
-  return gulp.src("output/**/*.js")
-    .pipe(jsvalidate());
+gulp.task('example-bundle', ['example-make'], function() {
+    return purescript.pscBundle({
+        src: "output/**/*.js",
+        main: "Main",
+        output: "bundled.js"
+    });
 });
 
-var docTasks = [];
+gulp.task("example", ["example-bundle"], function() {
+    return gulp.src("bundled.js")
+        .pipe(webpack({
+            resolve: {
+                modulesDirectories: [
+                    "node_modules"
+                ]
+            },
+            output: {
+                filename: "example.js"
+            }
+        }))
+        .pipe(gulp.dest("example"));
+});
 
-var docTask = function(name) {
-  var taskName = "docs-" + name.toLowerCase();
-  gulp.task(taskName, ["clean-docs"], function () {
-    return gulp.src("src/" + name.replace(/\./g, "/") + ".purs")
-      .pipe(purescript.pscDocs())
-      .pipe(gulp.dest("docs/" + name + ".md"));
-  });
-  docTasks.push(taskName);
-};
 
-["Text.Markdown.SlamDown.Html"].forEach(docTask);
+gulp.task("jsvalidate", ["make"], function() {
+    return gulp.src("output/**/*.js")
+        .pipe(jsValidate());
+});
 
-gulp.task("docs", docTasks);
+gulp.task("docs", function() {
+    return purescript.pscDocs({
+        src: sources,
+        docgen: {
+            "Text.Markdown.SlamDown.Html": "docs/Text/Markdown/SlamDown/Html.md"
+        }
+    });
+});
 
-gulp.task("default", ["jsvalidate", "docs", "make", "example"]);
+gulp.task("default", ["jsvalidate", "docs", "example"]);

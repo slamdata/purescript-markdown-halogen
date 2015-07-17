@@ -10,16 +10,17 @@ module Text.Markdown.SlamDown.Html
   )
   where
 
+import Prelude
 import Control.Alternative (Alternative)
 import Control.Monad.State (State(), evalState)
 import Control.Monad.State.Class (get, modify)
 
-import Data.Array (concat, zipWith, mapMaybe)
 import Data.Maybe (Maybe(..), maybe)
+import Data.List (List(..), mapMaybe, fromList, zipWithA, zip, singleton)
 import Data.Monoid (mempty)
 import Data.String (joinWith)
-import Data.Tuple (Tuple(..), zip)
-import Data.Traversable (traverse, zipWithA)
+import Data.Tuple (Tuple(..))
+import Data.Traversable (traverse)
 
 import Text.Markdown.SlamDown
 
@@ -48,9 +49,10 @@ instance showSlamDownState :: Show SlamDownState where
 initSlamDownState :: SlamDown -> SlamDownState
 initSlamDownState = SlamDownState <<< M.fromList <<< everything (const mempty) go
   where
-  go :: Inline -> [Tuple String FormFieldValue]
-  go (FormField label _ field) = maybe [] (\v -> [Tuple label v]) $ getValue field
-  go _ = []
+  go :: Inline -> List (Tuple String FormFieldValue)
+  go (FormField label _ field) = maybe mempty (singleton <<< Tuple label)
+                                 $ getValue field
+  go _ = mempty
 
   getValue :: FormField -> Maybe FormFieldValue
   getValue (TextBox tbt (Just (Literal value))) = Just $ SingleValue tbt value
@@ -82,35 +84,35 @@ applySlamDownEvent (SlamDownState m) (CheckBoxChanged key val checked) =
     | checked = MultipleValues (S.singleton val)
     | otherwise = MultipleValues S.empty
 
-type Fresh = State Number
+type Fresh = State Int
 
 -- | Render the SlamDown AST to an arbitrary Halogen HTML representation
-renderHalogen :: forall f. (Alternative f) => String -> SlamDownState -> SlamDown -> [H.HTML (f SlamDownEvent)]
-renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse renderBlock bs) 1
+renderHalogen :: forall f. (Alternative f) => String -> SlamDownState -> SlamDown -> Array (H.HTML (f SlamDownEvent))
+renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse renderBlock (fromList bs)) 1
 
   where
 
   renderBlock :: Block -> Fresh (H.HTML (f SlamDownEvent))
-  renderBlock (Paragraph is) = H.p_ <$> traverse renderInline is
-  renderBlock (Header level is) = h_ level <$> traverse renderInline is
+  renderBlock (Paragraph is) = H.p_ <$> traverse renderInline (fromList is)
+  renderBlock (Header level is) = h_ level <$> traverse renderInline (fromList is)
     where
-    h_ :: forall a. Number -> [H.HTML (f a)] -> H.HTML (f a)
+    h_ :: forall a. Int -> Array (H.HTML (f a)) -> H.HTML (f a)
     h_ 1 = H.h1_
     h_ 2 = H.h2_
     h_ 3 = H.h3_
     h_ 4 = H.h4_
     h_ 5 = H.h5_
     h_ 6 = H.h6_
-  renderBlock (Blockquote bs) = H.blockquote_ <$> traverse renderBlock bs
-  renderBlock (List lt bss) = el_ lt <$> traverse item bss
+  renderBlock (Blockquote bs) = H.blockquote_ <$> traverse renderBlock (fromList bs)
+  renderBlock (Lst lt bss) = el_ lt <$> traverse item (fromList bss)
     where
-    el_ :: forall a. ListType -> [H.HTML (f a)] -> H.HTML (f a)
+    el_ :: forall a. ListType -> Array (H.HTML (f a)) -> H.HTML (f a)
     el_ (Bullet _)  = H.ul_
     el_ (Ordered _) = H.ol_
-    item :: [Block] -> Fresh (H.HTML (f SlamDownEvent))
-    item bs = H.li_ <$> traverse renderBlock bs
+    item :: List Block -> Fresh (H.HTML (f SlamDownEvent))
+    item bs = H.li_ <$> traverse renderBlock (fromList bs)
   renderBlock (CodeBlock _ ss) =
-    pure $ H.pre_ [ H.code_ [ H.text (joinWith "\n" ss) ] ]
+    pure $ H.pre_ [ H.code_ [ H.text (joinWith "\n" $ fromList ss) ] ]
   renderBlock (LinkReference l url) =
     pure $ H.p_ [ H.text (l <> ": ")
                 , H.a [ A.name l, A.id_ l, A.href url ] [ H.text url ]
@@ -123,14 +125,14 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
   renderInline Space = pure $ H.text " "
   renderInline SoftBreak = pure $ H.text "\n"
   renderInline LineBreak = pure $ H.br_ []
-  renderInline (Emph is) = H.em_ <$> traverse renderInline is
-  renderInline (Strong is) = H.strong_ <$> traverse renderInline is
+  renderInline (Emph is) = H.em_ <$> traverse renderInline (fromList is)
+  renderInline (Strong is) = H.strong_ <$> traverse renderInline (fromList is)
   renderInline (Code _ c) = pure $ H.code_ [ H.text c ]
-  renderInline (Link body tgt) = H.a [ A.href (href tgt) ] <$> traverse renderInline body
+  renderInline (Link body tgt) = H.a [ A.href (href tgt) ] <$> traverse renderInline (fromList body)
     where
     href (InlineLink url) = url
     href (ReferenceLink tgt) = maybe "" ("#" ++) tgt
-  renderInline (Image body url) = H.img [ A.src url ] <$> traverse renderInline body
+  renderInline (Image body url) = H.img [ A.src url ] <$> traverse renderInline (fromList body)
   renderInline (FormField label req el) = do
     id <- fresh
     el' <- renderFormElement id label el
@@ -152,7 +154,7 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
   renderFormElement id label (TextBox t (Just (Literal value))) =
     pure $ renderTextInput id label t (lookupTextValue label value)
   renderFormElement _ label (RadioButtons (Literal def) (Literal ls)) =
-    H.ul [ A.class_ (A.className "slamdown-radios") ] <$> traverse (\val -> radio (val == sel) val) (def : ls)
+    H.ul [ A.class_ (A.className "slamdown-radios") ] <$> traverse (\val -> radio (val == sel) val) (fromList (Cons def ls))
     where
     sel = lookupTextValue label def
     radio checked value = do
@@ -167,7 +169,7 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
                    , H.label [ A.for id ] [ H.text value ]
                    ]
   renderFormElement _ label (CheckBoxes (Literal bs) (Literal ls)) =
-    H.ul [ A.class_ (A.className "slamdown-checkboxes") ] <$> zipWithA checkBox (lookupMultipleValues label bs ls) ls
+    H.ul [ A.class_ (A.className "slamdown-checkboxes") ] <$> (fromList <$> (zipWithA checkBox (lookupMultipleValues label bs ls) ls))
     where
     checkBox checked value = do
       id <- fresh
@@ -181,7 +183,7 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
                    , H.label [ A.for id ] [ H.text value ]
                    ]
   renderFormElement id label (DropDown (Literal ls) Nothing) = do
-    pure $ renderDropDown id label ("" : ls) Nothing
+    pure $ renderDropDown id label (Cons "" ls) Nothing
   renderFormElement id label (DropDown (Literal ls) (Just (Literal sel))) = do
     pure $ renderDropDown id label ls (Just (lookupTextValue label sel))
   renderFormElement _ _ _ = pure $ unsupportedFormElement
@@ -192,7 +194,7 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
       Just (SingleValue _ val) -> val
       _ -> def
 
-  lookupMultipleValues :: String -> [Boolean] -> [String] -> [Boolean]
+  lookupMultipleValues :: String -> List Boolean -> List String -> List Boolean
   lookupMultipleValues key def ls =
     case M.lookup key m of
       Just (MultipleValues val) -> (`S.member` val) <$> ls
@@ -200,7 +202,7 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
 
   fresh :: Fresh String
   fresh = do
-    n <- get :: Fresh Number
+    n <- get :: Fresh Int
     modify (+ 1)
     pure (formName ++ "-" ++ show n)
 
@@ -213,13 +215,13 @@ renderTextInput id label t value =
           , E.onInput (E.input (TextChanged t label))
           ] []
 
-renderDropDown :: forall f. (Alternative f) => String -> String -> [String] -> Maybe String -> H.HTML (f SlamDownEvent)
+renderDropDown :: forall f. (Alternative f) => String -> String -> List String -> Maybe String -> H.HTML (f SlamDownEvent)
 renderDropDown id label ls sel =
   H.select [ A.id_ id
            , A.name label
            , E.onValueChanged (E.input (TextChanged PlainText label))
            ]
-           $ maybe option option' sel <$> ls
+           (fromList $ maybe option option' sel <$> ls)
   where
   option :: String -> H.HTML (f SlamDownEvent)
   option value = H.option [ A.value value ] [ H.text value ]
@@ -232,6 +234,7 @@ textBoxTypeName t = case t of
   Date -> "date"
   Time -> "time"
   DateTime -> "datetime-local"
+  Numeric -> "number"
 
 unsupportedFormElement :: forall a. H.HTML a
 unsupportedFormElement = H.text "Unsupported form element"
