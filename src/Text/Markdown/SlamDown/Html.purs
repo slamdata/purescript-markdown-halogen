@@ -21,8 +21,10 @@ import Data.Monoid (mempty)
 import Data.String (joinWith)
 import Data.Tuple (Tuple(..))
 import Data.Traversable (traverse)
+import qualified Data.Validation as V
 
 import Text.Markdown.SlamDown
+import Text.Markdown.SlamDown.Parser.Inline (validateFormField, validateTextOfType)
 
 import qualified Data.Set as S
 import qualified Data.StrMap as M
@@ -50,19 +52,20 @@ initSlamDownState :: SlamDown -> SlamDownState
 initSlamDownState = SlamDownState <<< M.fromList <<< everything (const mempty) go
   where
   go :: Inline -> List (Tuple String FormFieldValue)
-  go (FormField label _ field) = maybe mempty (singleton <<< Tuple label)
-                                 $ getValue field
+  go (FormField label _ field) =
+    maybe mempty (singleton <<< Tuple label) $
+      V.runV (const Nothing) Just (validateFormField field) >>= getDefaultValue
   go _ = mempty
 
-  getValue :: FormField -> Maybe FormFieldValue
-  getValue (TextBox tbt (Just (Literal value))) = Just $ SingleValue tbt value
-  getValue (CheckBoxes (Literal sels) (Literal vals)) = Just $ MultipleValues $ S.fromList $ chk `mapMaybe` zip sels vals
+  getDefaultValue :: FormField -> Maybe FormFieldValue
+  getDefaultValue (TextBox tbt (Just (Literal value))) = Just $ SingleValue tbt value
+  getDefaultValue (CheckBoxes (Literal sels) (Literal vals)) = Just $ MultipleValues $ S.fromList $ chk `mapMaybe` zip sels vals
     where
     chk (Tuple true value) = Just value
     chk _ = Nothing
-  getValue (RadioButtons (Literal value) _) = Just $ SingleValue PlainText value
-  getValue (DropDown _ (Just (Literal value))) = Just $ SingleValue PlainText value
-  getValue _ = Nothing
+  getDefaultValue (RadioButtons (Literal value) _) = Just $ SingleValue PlainText value
+  getDefaultValue (DropDown _ (Just (Literal value))) = Just $ SingleValue PlainText value
+  getDefaultValue _ = Nothing
 
 -- | The type of events which can be raised by SlamDown forms
 data SlamDownEvent
@@ -135,7 +138,7 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
   renderInline (Image body url) = H.img [ A.src url ] <$> traverse renderInline (fromList body)
   renderInline (FormField label req el) = do
     id <- fresh
-    el' <- renderFormElement id label el
+    el' <- renderFormElement id label (ensureValidField el)
     pure $ H.span [ A.class_ (A.className "slamdown-field") ]
                   [ H.label (if requiresId then [ A.for id ] else [])
                             [ H.text (label ++ requiredLabel) ]
@@ -148,15 +151,30 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
       RadioButtons _ _ -> false
       _ -> true
 
+  -- | Make sure that the default value of a form field is valid, and if it is not, strip it out.
+  ensureValidField :: FormField -> FormField
+  ensureValidField field =
+    V.runV
+      (const $ stripDefaultValue field)
+      id
+      (validateFormField field)
+    where
+      stripDefaultValue :: FormField -> FormField
+      stripDefaultValue field =
+        case field of
+           TextBox t _ -> TextBox t Nothing
+           DropDown ls _ -> DropDown ls Nothing
+           _ -> field
+
   renderFormElement :: String -> String -> FormField -> Fresh (H.HTML (f SlamDownEvent))
   renderFormElement id label (TextBox t Nothing) =
-    pure $ renderTextInput id label t (lookupTextValue label "")
+    pure $ renderTextInput id label t (lookupTextValue label Nothing)
   renderFormElement id label (TextBox t (Just (Literal value))) =
-    pure $ renderTextInput id label t (lookupTextValue label value)
+    pure $ renderTextInput id label t (lookupTextValue label (Just value))
   renderFormElement _ label (RadioButtons (Literal def) (Literal ls)) =
-    H.ul [ A.class_ (A.className "slamdown-radios") ] <$> traverse (\val -> radio (val == sel) val) (fromList (Cons def ls))
+    H.ul [ A.class_ (A.className "slamdown-radios") ] <$> traverse (\val -> radio (Just val == sel) val) (fromList (Cons def ls))
     where
-    sel = lookupTextValue label def
+    sel = lookupTextValue label (Just def)
     radio checked value = do
       id <- fresh
       pure $ H.li_ [ H.input [ A.checked checked
@@ -185,13 +203,13 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
   renderFormElement id label (DropDown (Literal ls) Nothing) = do
     pure $ renderDropDown id label (Cons "" ls) Nothing
   renderFormElement id label (DropDown (Literal ls) (Just (Literal sel))) = do
-    pure $ renderDropDown id label ls (Just (lookupTextValue label sel))
+    pure $ renderDropDown id label ls (lookupTextValue label (Just sel))
   renderFormElement _ _ _ = pure $ unsupportedFormElement
 
-  lookupTextValue :: String -> String -> String
+  lookupTextValue :: String -> Maybe String -> Maybe String
   lookupTextValue key def =
     case M.lookup key m of
-      Just (SingleValue _ val) -> val
+      Just (SingleValue _ val) -> Just val
       _ -> def
 
   lookupMultipleValues :: String -> List Boolean -> List String -> List Boolean
@@ -206,14 +224,13 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
     modify (+ 1)
     pure (formName ++ "-" ++ show n)
 
-renderTextInput :: forall f. (Alternative f) => String -> String -> TextBoxType -> String -> H.HTML (f SlamDownEvent)
+renderTextInput :: forall f. (Alternative f) => String -> String -> TextBoxType -> Maybe String -> H.HTML (f SlamDownEvent)
 renderTextInput id label t value =
-  H.input [ A.type_ (textBoxTypeName t)
+  H.input ([ A.type_ (textBoxTypeName t)
           , A.id_ id
           , A.name label
-          , A.value value
           , E.onInput (E.input (TextChanged t label))
-          ] []
+          ] <> maybe [] ((\x -> [x]) <<< A.value) value) []
 
 renderDropDown :: forall f. (Alternative f) => String -> String -> List String -> Maybe String -> H.HTML (f SlamDownEvent)
 renderDropDown id label ls sel =
