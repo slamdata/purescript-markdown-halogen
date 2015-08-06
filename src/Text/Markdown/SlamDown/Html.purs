@@ -26,6 +26,7 @@ import qualified Data.Validation as V
 import Text.Markdown.SlamDown
 import Text.Markdown.SlamDown.Parser.Inline (validateFormField, validateTextOfType)
 
+import qualified Data.Array as Array
 import qualified Data.Set as S
 import qualified Data.StrMap as M
 import qualified Halogen.HTML as H
@@ -230,7 +231,7 @@ renderTextInput id label t value =
           , A.id_ id
           , A.name label
           , E.onInput (E.input (TextChanged t label))
-          ] <> maybe [] ((\x -> [x]) <<< A.value) value) []
+          ] <> maybe [] (Array.singleton <<< A.value) value) []
 
 renderDropDown :: forall f. (Alternative f) => String -> String -> List String -> Maybe String -> H.HTML (f SlamDownEvent)
 renderDropDown id label ls sel =
