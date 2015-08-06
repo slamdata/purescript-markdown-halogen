@@ -15,6 +15,6 @@
   "dependencies": {
     "purescript-halogen": "30e8b2c7174a1eeda73f67cc42c739ca24a1e218",
     "purescript-markdown": "^1.8.0",
-    "purescript-validation": "~0.2.0"
+    "purescript-validation": "^0.2.0"
   }
 }
