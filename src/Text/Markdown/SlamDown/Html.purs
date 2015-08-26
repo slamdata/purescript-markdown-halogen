@@ -15,7 +15,7 @@ import Control.Alternative (Alternative)
 import Control.Monad.State (State(), evalState)
 import Control.Monad.State.Class (get, modify)
 
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..), maybe, fromMaybe)
 import Data.List (List(..), mapMaybe, fromList, zipWithA, zip, singleton)
 import Data.Monoid (mempty)
 import Data.String (joinWith)
@@ -228,10 +228,11 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
 renderTextInput :: forall f. (Alternative f) => String -> String -> TextBoxType -> Maybe String -> H.HTML (f SlamDownEvent)
 renderTextInput id label t value =
   H.input ([ A.type_ (textBoxTypeName t)
-          , A.id_ id
-          , A.name label
-          , E.onInput (E.input (TextChanged t label))
-          ] <> maybe [] (Array.singleton <<< A.value) value) []
+           , A.id_ id
+           , A.name label
+           , E.onInput (E.input (TextChanged t label))
+           , A.value (fromMaybe "" value)
+           ]) []
 
 renderDropDown :: forall f. (Alternative f) => String -> String -> List String -> Maybe String -> H.HTML (f SlamDownEvent)
 renderDropDown id label ls sel =
