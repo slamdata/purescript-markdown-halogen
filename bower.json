@@ -13,9 +13,11 @@
     "package.json"
   ],
   "dependencies": {
+    "purescript-browserfeatures": "^0.2.1",
     "purescript-halogen": "30e8b2c7174a1eeda73f67cc42c739ca24a1e218",
     "purescript-markdown": "^1.8.0",
-    "purescript-validation": "^0.2.0"
+    "purescript-validation": "^0.2.0",
+    "purescript-prelude": "^0.1.2"
   },
   "resolutions": {
     "purescript-strings": "^0.7.0"

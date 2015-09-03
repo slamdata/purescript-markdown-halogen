@@ -4,6 +4,7 @@ module Text.Markdown.SlamDown.Html
   ( SlamDownEvent()
   , SlamDownState(..)
   , FormFieldValue(..)
+  , defaultBrowserFeatures
   , initSlamDownState
   , applySlamDownEvent
   , renderHalogen
@@ -34,6 +35,9 @@ import qualified Halogen.HTML.Attributes as A
 import qualified Halogen.HTML.Events as E
 import qualified Halogen.HTML.Events.Forms as E
 
+import Data.BrowserFeatures
+import qualified Data.BrowserFeatures.InputType as IT
+
 data FormFieldValue
   = SingleValue TextBoxType String
   | MultipleValues (S.Set String)
@@ -47,6 +51,12 @@ newtype SlamDownState = SlamDownState (M.StrMap FormFieldValue)
 
 instance showSlamDownState :: Show SlamDownState where
   show (SlamDownState m) = "(SlamDownState " ++ show m ++ ")"
+
+-- | By default, all features are enabled.
+defaultBrowserFeatures :: BrowserFeatures
+defaultBrowserFeatures =
+  { inputTypeSupported : \_ -> true
+  }
 
 -- | The initial state of form, in which all fields use their default values
 initSlamDownState :: SlamDown -> SlamDownState
@@ -91,8 +101,8 @@ applySlamDownEvent (SlamDownState m) (CheckBoxChanged key val checked) =
 type Fresh = State Int
 
 -- | Render the SlamDown AST to an arbitrary Halogen HTML representation
-renderHalogen :: forall f. (Alternative f) => String -> SlamDownState -> SlamDown -> Array (H.HTML (f SlamDownEvent))
-renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse renderBlock (fromList bs)) 1
+renderHalogen :: forall f. (Alternative f) => BrowserFeatures -> String -> SlamDownState -> SlamDown -> Array (H.HTML (f SlamDownEvent))
+renderHalogen featureSupport formName (SlamDownState m) (SlamDown bs) = evalState (traverse renderBlock (fromList bs)) 1
 
   where
 
@@ -169,9 +179,9 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
 
   renderFormElement :: String -> String -> FormField -> Fresh (H.HTML (f SlamDownEvent))
   renderFormElement id label (TextBox t Nothing) =
-    pure $ renderTextInput id label t (lookupTextValue label Nothing)
+    pure $ renderTextInput featureSupport id label t (lookupTextValue label Nothing)
   renderFormElement id label (TextBox t (Just (Literal value))) =
-    pure $ renderTextInput id label t (lookupTextValue label (Just value))
+    pure $ renderTextInput featureSupport id label t (lookupTextValue label (Just value))
   renderFormElement _ label (RadioButtons (Literal def) (Literal ls)) =
     H.ul [ A.class_ (A.className "slamdown-radios") ] <$> traverse (\val -> radio (Just val == sel) val) (fromList (Cons def ls))
     where
@@ -225,9 +235,25 @@ renderHalogen formName (SlamDownState m) (SlamDown bs) = evalState (traverse ren
     modify (+ 1)
     pure (formName ++ "-" ++ show n)
 
-renderTextInput :: forall f. (Alternative f) => String -> String -> TextBoxType -> Maybe String -> H.HTML (f SlamDownEvent)
-renderTextInput id label t value =
-  H.input ([ A.type_ (textBoxTypeName t)
+availableInputType :: BrowserFeatures -> TextBoxType -> IT.InputType
+availableInputType features tbt =
+  if features.inputTypeSupported inputType
+     then inputType
+     else IT.Text
+  where
+   inputType :: IT.InputType
+   inputType = textBoxTypeToInputType tbt
+
+textBoxTypeToInputType :: TextBoxType -> IT.InputType
+textBoxTypeToInputType PlainText = IT.Text
+textBoxTypeToInputType Date = IT.Date
+textBoxTypeToInputType Time = IT.Time
+textBoxTypeToInputType DateTime = IT.DateTimeLocal
+textBoxTypeToInputType Numeric = IT.Number
+
+renderTextInput :: forall f. (Alternative f) => BrowserFeatures -> String -> String -> TextBoxType -> Maybe String -> H.HTML (f SlamDownEvent)
+renderTextInput browserFeatures id label t value =
+  H.input ([ A.type_ (IT.renderInputType $ availableInputType browserFeatures t)
            , A.id_ id
            , A.name label
            , E.onInput (E.input (TextChanged t label))
