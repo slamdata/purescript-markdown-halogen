@@ -10,6 +10,9 @@ import Data.Foldable
 import qualified Data.StrMap as SM
 
 import DOM
+import DOM.BrowserFeatures.Detectors
+
+import Data.BrowserFeatures
 
 import Data.DOM.Simple.Document
 import Data.DOM.Simple.Element
@@ -33,8 +36,8 @@ import Text.Markdown.SlamDown
 import Text.Markdown.SlamDown.Html
 import Text.Markdown.SlamDown.Parser
 
-onLoad :: forall e. Eff (dom :: DOM | e) Unit -> Eff (dom :: DOM | e) Unit 
-onLoad action = do 
+onLoad :: forall e. Eff (dom :: DOM | e) Unit -> Eff (dom :: DOM | e) Unit
+onLoad action = do
   let handler :: DOMEvent -> _
       handler _ = action
   addUIEventListener LoadEvent handler globalWindow
@@ -51,8 +54,8 @@ data Input
   = DocumentChanged String
   | FormFieldChanged SlamDownEvent
 
-ui :: forall f eff. (Alternative f) => Component f Input Input
-ui = render <$> stateful (State "" (initSlamDownState $ SlamDown mempty)) update
+ui :: forall f eff. (Alternative f) => BrowserFeatures -> Component f Input Input
+ui browserFeatures = render <$> stateful (State "" (initSlamDownState $ SlamDown mempty)) update
   where
   render :: State -> H.HTML (f Input)
   render (State md form) =
@@ -69,7 +72,7 @@ ui = render <$> stateful (State "" (initSlamDownState $ SlamDown mempty)) update
           ]
 
   output :: String -> SlamDownState -> Array (H.HTML (f Input))
-  output md form = ((FormFieldChanged <$>) <$>) <$> renderHalogen "slamdown-example" form (parseMd md)
+  output md form = ((FormFieldChanged <$>) <$>) <$> renderHalogen browserFeatures "slamdown-example" form (parseMd md)
 
   update :: State -> Input -> State
   update (State _ (SlamDownState form)) (DocumentChanged md) =
@@ -83,6 +86,7 @@ ui = render <$> stateful (State "" (initSlamDownState $ SlamDown mempty)) update
   update (State s form) (FormFieldChanged e) = State s (applySlamDownEvent form e)
 
 main = onLoad do
-  Tuple node driver <- runUI ui
+  browserFeatures <- detectBrowserFeatures
+  Tuple node driver <- runUI $ ui browserFeatures
   appendToBody node
 

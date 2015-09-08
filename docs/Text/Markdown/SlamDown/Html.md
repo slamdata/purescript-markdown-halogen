@@ -29,6 +29,14 @@ The state of a SlamDown form - a mapping from input keys to values
 instance showSlamDownState :: Show SlamDownState
 ```
 
+#### `defaultBrowserFeatures`
+
+``` purescript
+defaultBrowserFeatures :: BrowserFeatures
+```
+
+By default, all features are enabled.
+
 #### `initSlamDownState`
 
 ``` purescript
@@ -56,7 +64,7 @@ Apply a `SlamDownEvent` to a `SlamDownState`.
 #### `renderHalogen`
 
 ``` purescript
-renderHalogen :: forall f. (Alternative f) => String -> SlamDownState -> SlamDown -> Array (HTML (f SlamDownEvent))
+renderHalogen :: forall f. (Alternative f) => BrowserFeatures -> String -> SlamDownState -> SlamDown -> Array (HTML (f SlamDownEvent))
 ```
 
 Render the SlamDown AST to an arbitrary Halogen HTML representation
