@@ -17,7 +17,7 @@ import Control.Monad.State (State(), evalState)
 import Control.Monad.State.Class (get, modify)
 
 import Data.Maybe (Maybe(..), maybe, fromMaybe)
-import Data.List (List(..), mapMaybe, fromList, zipWithA, zip, singleton)
+import Data.List (List(..), mapMaybe, fromList, toList, zipWithA, zip, singleton)
 import Data.Monoid (mempty)
 import Data.String (joinWith)
 import Data.Tuple (Tuple(..))
@@ -38,9 +38,19 @@ import qualified Halogen.HTML.Events.Forms as E
 import Data.BrowserFeatures
 import qualified Data.BrowserFeatures.InputType as IT
 
+import qualified Test.StrongCheck as SC
+import qualified Test.StrongCheck.Gen as SC
+
 data FormFieldValue
   = SingleValue TextBoxType String
   | MultipleValues (S.Set String)
+
+instance arbitraryFormFieldValue :: SC.Arbitrary FormFieldValue where
+  arbitrary = do
+    b <- SC.arbitrary
+    if b
+      then SingleValue <$> SC.arbitrary <*> SC.arbitrary
+      else MultipleValues <<< S.fromList <<< toList <$> SC.arrayOf SC.arbitrary
 
 instance showFormFieldValue :: Show FormFieldValue where
   show (SingleValue t s) = "(SingleValue " ++ show t ++ " " ++ show s ++ ")"
@@ -51,6 +61,9 @@ newtype SlamDownState = SlamDownState (M.StrMap FormFieldValue)
 
 instance showSlamDownState :: Show SlamDownState where
   show (SlamDownState m) = "(SlamDownState " ++ show m ++ ")"
+
+instance arbitrarySlamDownState :: SC.Arbitrary SlamDownState where
+  arbitrary = SlamDownState <<< M.fromList <<< toList <$> SC.arrayOf SC.arbitrary
 
 -- | By default, all features are enabled.
 defaultBrowserFeatures :: BrowserFeatures
@@ -82,6 +95,14 @@ initSlamDownState = SlamDownState <<< M.fromList <<< everything (const mempty) g
 data SlamDownEvent
   = TextChanged TextBoxType String String
   | CheckBoxChanged String String Boolean
+
+instance arbitrarySlamDownEvent :: SC.Arbitrary SlamDownEvent where
+  arbitrary = do
+    b <- SC.arbitrary
+    if b
+      then TextChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
+      else CheckBoxChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
+
 
 -- | Apply a `SlamDownEvent` to a `SlamDownState`.
 applySlamDownEvent :: SlamDownState -> SlamDownEvent -> SlamDownState
