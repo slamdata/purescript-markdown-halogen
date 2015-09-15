@@ -12,6 +12,7 @@ data FormFieldValue
 
 ##### Instances
 ``` purescript
+instance arbitraryFormFieldValue :: Arbitrary FormFieldValue
 instance showFormFieldValue :: Show FormFieldValue
 ```
 
@@ -27,6 +28,7 @@ The state of a SlamDown form - a mapping from input keys to values
 ##### Instances
 ``` purescript
 instance showSlamDownState :: Show SlamDownState
+instance arbitrarySlamDownState :: Arbitrary SlamDownState
 ```
 
 #### `defaultBrowserFeatures`
@@ -52,6 +54,11 @@ data SlamDownEvent
 ```
 
 The type of events which can be raised by SlamDown forms
+
+##### Instances
+``` purescript
+instance arbitrarySlamDownEvent :: Arbitrary SlamDownEvent
+```
 
 #### `applySlamDownEvent`
 
