@@ -1,6 +1,6 @@
 ## Module Text.Markdown.SlamDown.Html
 
-This module defines functions for rendering Markdown to HTML.
+This module defines a component for rendering SlamDown documents to HTML
 
 #### `FormFieldValue`
 
@@ -16,14 +16,26 @@ instance arbitraryFormFieldValue :: Arbitrary FormFieldValue
 instance showFormFieldValue :: Show FormFieldValue
 ```
 
+#### `SlamDownFormState`
+
+``` purescript
+type SlamDownFormState = StrMap FormFieldValue
+```
+
+#### `SlamDownStateR`
+
+``` purescript
+type SlamDownStateR = { document :: SlamDown, formState :: SlamDownFormState }
+```
+
 #### `SlamDownState`
 
 ``` purescript
 newtype SlamDownState
-  = SlamDownState (StrMap FormFieldValue)
+  = SlamDownState SlamDownStateR
 ```
 
-The state of a SlamDown form - a mapping from input keys to values
+The state of a SlamDown form
 
 ##### Instances
 ``` purescript
@@ -39,41 +51,62 @@ defaultBrowserFeatures :: BrowserFeatures
 
 By default, all features are enabled.
 
-#### `initSlamDownState`
+#### `emptySlamDownState`
 
 ``` purescript
-initSlamDownState :: SlamDown -> SlamDownState
+emptySlamDownState :: SlamDownState
+```
+
+#### `makeSlamDownState`
+
+``` purescript
+makeSlamDownState :: SlamDown -> SlamDownState
 ```
 
 The initial state of form, in which all fields use their default values
 
-#### `SlamDownEvent`
+#### `SlamDownQuery`
 
 ``` purescript
-data SlamDownEvent
+data SlamDownQuery a
+  = TextChanged TextBoxType String String a
+  | CheckBoxChanged String String Boolean a
+  | SetDocument SlamDown a
+  | GetFormState (SlamDownFormState -> a)
 ```
-
-The type of events which can be raised by SlamDown forms
 
 ##### Instances
 ``` purescript
-instance arbitrarySlamDownEvent :: Arbitrary SlamDownEvent
+instance functorSlamDownQuery :: Functor SlamDownQuery
+instance arbitrarySlamDownQuery :: (Arbitrary a) => Arbitrary (SlamDownQuery a)
 ```
 
-#### `applySlamDownEvent`
+#### `evalSlamDownQuery`
 
 ``` purescript
-applySlamDownEvent :: SlamDownState -> SlamDownEvent -> SlamDownState
+evalSlamDownQuery :: forall g. Eval SlamDownQuery SlamDownState SlamDownQuery g
 ```
 
-Apply a `SlamDownEvent` to a `SlamDownState`.
-
-#### `renderHalogen`
+#### `SlamDownConfig`
 
 ``` purescript
-renderHalogen :: forall f. (Alternative f) => BrowserFeatures -> String -> SlamDownState -> SlamDown -> Array (HTML (f SlamDownEvent))
+type SlamDownConfig = { browserFeatures :: BrowserFeatures, formName :: String }
 ```
 
-Render the SlamDown AST to an arbitrary Halogen HTML representation
+#### `renderSlamDown`
+
+``` purescript
+renderSlamDown :: SlamDownConfig -> Render SlamDownState SlamDownQuery
+```
+
+Render a `SlamDown` document into an HTML form.
+
+#### `slamDownComponent`
+
+``` purescript
+slamDownComponent :: forall g. SlamDownConfig -> Component SlamDownState SlamDownQuery g
+```
+
+Bundles up the SlamDown renderer and state machine into a Halogen component.
 
 
