@@ -1,13 +1,20 @@
--- | This module defines functions for rendering Markdown to HTML.
+-- | This module defines a component for rendering SlamDown documents to HTML
 
 module Text.Markdown.SlamDown.Html
-  ( SlamDownEvent()
+  ( SlamDownQuery(..)
+  , SlamDownFormState(..)
+  , SlamDownStateR(..)
   , SlamDownState(..)
   , FormFieldValue(..)
+  , emptySlamDownState
+  , makeSlamDownState
+
+  , SlamDownConfig(..)
   , defaultBrowserFeatures
-  , initSlamDownState
-  , applySlamDownEvent
-  , renderHalogen
+
+  , slamDownComponent
+  , renderSlamDown
+  , evalSlamDownQuery
   )
   where
 
@@ -16,12 +23,13 @@ import Control.Alternative (Alternative)
 import Control.Monad.State (State(), evalState)
 import Control.Monad.State.Class (get, modify)
 
-import Data.Maybe (Maybe(..), maybe, fromMaybe)
+import Data.Foldable (foldMap, foldl)
 import Data.List (List(..), mapMaybe, fromList, toList, zipWithA, zip, singleton)
+import Data.Maybe (Maybe(..), maybe, fromMaybe)
 import Data.Monoid (mempty)
 import Data.String (joinWith)
-import Data.Tuple (Tuple(..))
 import Data.Traversable (traverse)
+import Data.Tuple (Tuple(..))
 import qualified Data.Validation as V
 
 import Text.Markdown.SlamDown
@@ -30,10 +38,12 @@ import Text.Markdown.SlamDown.Parser.Inline (validateFormField, validateTextOfTy
 import qualified Data.Array as Array
 import qualified Data.Set as S
 import qualified Data.StrMap as M
-import qualified Halogen.HTML as H
-import qualified Halogen.HTML.Attributes as A
-import qualified Halogen.HTML.Events as E
-import qualified Halogen.HTML.Events.Forms as E
+import qualified Halogen (get, modify) as H
+import qualified Halogen.Component as H
+import qualified Halogen.HTML.Core as H
+import qualified Halogen.HTML.Indexed as H
+import qualified Halogen.HTML.Properties.Indexed as P
+import qualified Halogen.HTML.Events.Indexed as E
 
 import Data.BrowserFeatures
 import qualified Data.BrowserFeatures.InputType as IT
@@ -56,14 +66,31 @@ instance showFormFieldValue :: Show FormFieldValue where
   show (SingleValue t s) = "(SingleValue " ++ show t ++ " " ++ show s ++ ")"
   show (MultipleValues ss) = "(MultipleValues " ++ show ss ++ ")"
 
--- | The state of a SlamDown form - a mapping from input keys to values
-newtype SlamDownState = SlamDownState (M.StrMap FormFieldValue)
+type SlamDownFormDesc = M.StrMap FormField
+type SlamDownFormState = M.StrMap FormFieldValue
+
+type SlamDownStateR =
+  { document :: SlamDown
+  , formState :: SlamDownFormState
+  }
+
+-- | The state of a SlamDown form
+newtype SlamDownState = SlamDownState SlamDownStateR
+
+modifySlamDownState :: (SlamDownFormState -> SlamDownFormState) -> SlamDownState -> SlamDownState
+modifySlamDownState f (SlamDownState rec) = SlamDownState (rec { formState = f rec.formState })
 
 instance showSlamDownState :: Show SlamDownState where
-  show (SlamDownState m) = "(SlamDownState " ++ show m ++ ")"
+  show (SlamDownState rec) = "(SlamDownState " ++ show rec.formState ++ ")"
 
 instance arbitrarySlamDownState :: SC.Arbitrary SlamDownState where
-  arbitrary = SlamDownState <<< M.fromList <<< toList <$> SC.arrayOf SC.arbitrary
+  arbitrary = do
+    document <- SC.arbitrary
+    formState <- M.fromList <<< toList <$> SC.arrayOf SC.arbitrary
+    pure $ SlamDownState
+      { document : document
+      , formState : formState
+      }
 
 -- | By default, all features are enabled.
 defaultBrowserFeatures :: BrowserFeatures
@@ -71,190 +98,307 @@ defaultBrowserFeatures =
   { inputTypeSupported : \_ -> true
   }
 
--- | The initial state of form, in which all fields use their default values
-initSlamDownState :: SlamDown -> SlamDownState
-initSlamDownState = SlamDownState <<< M.fromList <<< everything (const mempty) go
+emptySlamDownState :: SlamDownState
+emptySlamDownState =
+  SlamDownState
+    { document : SlamDown mempty
+    , formState : M.empty
+    }
+
+formFieldGetDefaultValue :: FormField -> Maybe FormFieldValue
+formFieldGetDefaultValue f =
+  case f of
+    TextBox tbt (Just (Literal value)) ->
+      Just $ SingleValue tbt value
+    CheckBoxes (Literal sels) (Literal vals) ->
+      let chk (Tuple t v) = if t then Just v else Nothing in
+      Just $ MultipleValues $ S.fromList $ chk `mapMaybe` zip sels vals
+    RadioButtons (Literal value) _ ->
+      Just $ SingleValue PlainText value
+    DropDown _ (Just (Literal value)) ->
+      Just $ SingleValue PlainText value
+    _ -> Nothing
+
+formStateFromDocument :: SlamDown -> SlamDownFormState
+formStateFromDocument = M.fromList <<< everything (const mempty) phi
   where
-  go :: Inline -> List (Tuple String FormFieldValue)
-  go (FormField label _ field) =
-    maybe mempty (singleton <<< Tuple label) $
-      V.runV (const Nothing) Just (validateFormField field) >>= getDefaultValue
-  go _ = mempty
+    phi :: Inline -> List (Tuple String FormFieldValue)
+    phi (FormField label _ field) =
+      maybe mempty (singleton <<< Tuple label) $
+        V.runV (const Nothing) Just (validateFormField field)
+          >>= formFieldGetDefaultValue
+    phi _ = mempty
 
-  getDefaultValue :: FormField -> Maybe FormFieldValue
-  getDefaultValue (TextBox tbt (Just (Literal value))) = Just $ SingleValue tbt value
-  getDefaultValue (CheckBoxes (Literal sels) (Literal vals)) = Just $ MultipleValues $ S.fromList $ chk `mapMaybe` zip sels vals
-    where
-    chk (Tuple true value) = Just value
-    chk _ = Nothing
-  getDefaultValue (RadioButtons (Literal value) _) = Just $ SingleValue PlainText value
-  getDefaultValue (DropDown _ (Just (Literal value))) = Just $ SingleValue PlainText value
-  getDefaultValue _ = Nothing
+formDescFromDocument :: SlamDown -> SlamDownFormDesc
+formDescFromDocument = M.fromList <<< everything (const mempty) phi
+  where
+    phi :: Inline -> List (Tuple String FormField)
+    phi (FormField label _ field) = singleton (Tuple label field)
+    phi _ = mempty
 
--- | The type of events which can be raised by SlamDown forms
-data SlamDownEvent
-  = TextChanged TextBoxType String String
-  | CheckBoxChanged String String Boolean
+-- | The initial state of form, in which all fields use their default values
+makeSlamDownState :: SlamDown -> SlamDownState
+makeSlamDownState doc =
+  SlamDownState
+    { document : doc
+    , formState : formStateFromDocument doc
+    }
 
-instance arbitrarySlamDownEvent :: SC.Arbitrary SlamDownEvent where
+changeDocument :: SlamDown -> SlamDownState -> SlamDownState
+changeDocument doc (SlamDownState state) =
+  SlamDownState
+    { document : doc
+    , formState : mergedFormState
+    }
+
+  where
+    formDesc :: SlamDownFormDesc
+    formDesc = formDescFromDocument doc
+
+    -- | Returns the keys that are either not present in the new state, or have had their types changed.
+    keysToPrune :: Array String
+    keysToPrune =
+      M.foldMap
+        (\key oldVal ->
+            case Tuple oldVal (M.lookup key formDesc) of
+               Tuple (SingleValue tbt1 _) (Just (TextBox tbt2 _)) -> if tbt1 == tbt2 then [] else [key]
+               Tuple _ Nothing -> [key]
+               _ -> [])
+        state.formState
+
+    prunedFormState :: SlamDownFormState
+    prunedFormState = foldl (flip M.delete) state.formState keysToPrune
+
+    mergedFormState :: SlamDownFormState
+    mergedFormState = prunedFormState `M.union` formStateFromDocument doc
+
+data SlamDownQuery a
+  = TextChanged TextBoxType String String a
+  | CheckBoxChanged String String Boolean a
+  | SetDocument SlamDown a
+  | GetFormState (SlamDownFormState -> a)
+
+instance functorSlamDownQuery :: Functor SlamDownQuery where
+  map f e =
+    case e of
+      TextChanged tbt k v a -> TextChanged tbt k v $ f a
+      CheckBoxChanged k v b a -> CheckBoxChanged k v b $ f a
+      SetDocument doc a -> SetDocument doc $ f a
+      GetFormState k -> GetFormState (f <<< k)
+
+instance arbitrarySlamDownQuery :: (SC.Arbitrary a) => SC.Arbitrary (SlamDownQuery a) where
   arbitrary = do
     b <- SC.arbitrary
     if b
-      then TextChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
-      else CheckBoxChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
+      then TextChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
+      else CheckBoxChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
 
+evalSlamDownQuery :: forall g. H.Eval SlamDownQuery SlamDownState SlamDownQuery g
+evalSlamDownQuery e =
+  case e of
+    TextChanged t key val next -> do
+      H.modify <<< modifySlamDownState $
+        M.insert key (SingleValue t val)
+      pure next
+    CheckBoxChanged key val checked next -> do
+      let
+        updateSet :: Maybe FormFieldValue -> FormFieldValue
+        updateSet (Just (MultipleValues s))
+          | checked = MultipleValues (S.insert val s)
+          | otherwise = MultipleValues (S.delete val s)
+        updateSet _
+          | checked = MultipleValues (S.singleton val)
+          | otherwise = MultipleValues S.empty
+      H.modify <<< modifySlamDownState $
+        M.alter (Just <<< updateSet) key
+      pure next
+    GetFormState k -> do
+      SlamDownState state <- H.get
+      pure $ k state.formState
+    SetDocument doc next -> do
+      H.modify $ changeDocument doc
+      pure next
 
--- | Apply a `SlamDownEvent` to a `SlamDownState`.
-applySlamDownEvent :: SlamDownState -> SlamDownEvent -> SlamDownState
-applySlamDownEvent (SlamDownState m) (TextChanged t key val) =
-  SlamDownState (M.insert key (SingleValue t val) m)
-applySlamDownEvent (SlamDownState m) (CheckBoxChanged key val checked) =
-  SlamDownState (M.alter (Just <<< updateSet) key m)
-  where
-  updateSet :: Maybe FormFieldValue -> FormFieldValue
-  updateSet (Just (MultipleValues s))
-    | checked = MultipleValues (S.insert val s)
-    | otherwise = MultipleValues (S.delete val s)
-  updateSet _
-    | checked = MultipleValues (S.singleton val)
-    | otherwise = MultipleValues S.empty
+type SlamDownConfig =
+  { browserFeatures :: BrowserFeatures
+  , formName :: String
+  }
 
 type Fresh = State Int
 
--- | Render the SlamDown AST to an arbitrary Halogen HTML representation
-renderHalogen :: forall f. (Alternative f) => BrowserFeatures -> String -> SlamDownState -> SlamDown -> Array (H.HTML (f SlamDownEvent))
-renderHalogen featureSupport formName (SlamDownState m) (SlamDown bs) = evalState (traverse renderBlock (fromList bs)) 1
+fresh :: String -> Fresh String
+fresh formName = do
+  n <- get :: Fresh Int
+  modify (+ 1)
+  pure (formName ++ "-" ++ show n)
+
+runFresh :: forall a. Fresh a -> a
+runFresh m = evalState m 1
+
+type FreshRenderer p a = a -> Fresh (H.HTML p (SlamDownQuery Unit))
+
+-- | Render a `SlamDown` document into an HTML form.
+renderSlamDown :: SlamDownConfig -> H.Render SlamDownState SlamDownQuery
+renderSlamDown config (SlamDownState state) =
+  case state.document of
+    SlamDown bs ->
+      H.div_ <<< runFresh <<< traverse renderBlock $ fromList bs
 
   where
-
-  renderBlock :: Block -> Fresh (H.HTML (f SlamDownEvent))
-  renderBlock (Paragraph is) = H.p_ <$> traverse renderInline (fromList is)
-  renderBlock (Header level is) = h_ level <$> traverse renderInline (fromList is)
-    where
-    h_ :: forall a. Int -> Array (H.HTML (f a)) -> H.HTML (f a)
+    h_ :: forall p a. Int -> Array (H.HTML p a) -> H.HTML p a
     h_ 1 = H.h1_
     h_ 2 = H.h2_
     h_ 3 = H.h3_
     h_ 4 = H.h4_
     h_ 5 = H.h5_
-    h_ 6 = H.h6_
-  renderBlock (Blockquote bs) = H.blockquote_ <$> traverse renderBlock (fromList bs)
-  renderBlock (Lst lt bss) = el_ lt <$> traverse item (fromList bss)
-    where
-    el_ :: forall a. ListType -> Array (H.HTML (f a)) -> H.HTML (f a)
+    h_ _ = H.h6_
+
+    el_ :: forall p a. ListType -> Array (H.HTML p a) -> H.HTML p a
     el_ (Bullet _)  = H.ul_
     el_ (Ordered _) = H.ol_
-    item :: List Block -> Fresh (H.HTML (f SlamDownEvent))
-    item bs = H.li_ <$> traverse renderBlock (fromList bs)
-  renderBlock (CodeBlock _ ss) =
-    pure $ H.pre_ [ H.code_ [ H.text (joinWith "\n" $ fromList ss) ] ]
-  renderBlock (LinkReference l url) =
-    pure $ H.p_ [ H.text (l <> ": ")
-                , H.a [ A.name l, A.id_ l, A.href url ] [ H.text url ]
-                ]
-  renderBlock Rule = pure $ H.hr_ []
 
-  renderInline :: Inline -> Fresh (H.HTML (f SlamDownEvent))
-  renderInline (Str s) = pure $ H.text s
-  renderInline (Entity s) = pure $ H.text s
-  renderInline Space = pure $ H.text " "
-  renderInline SoftBreak = pure $ H.text "\n"
-  renderInline LineBreak = pure $ H.br_ []
-  renderInline (Emph is) = H.em_ <$> traverse renderInline (fromList is)
-  renderInline (Strong is) = H.strong_ <$> traverse renderInline (fromList is)
-  renderInline (Code _ c) = pure $ H.code_ [ H.text c ]
-  renderInline (Link body tgt) = H.a [ A.href (href tgt) ] <$> traverse renderInline (fromList body)
-    where
-    href (InlineLink url) = url
-    href (ReferenceLink tgt) = maybe "" ("#" ++) tgt
-  renderInline (Image body url) = H.img [ A.src url ] <$> traverse renderInline (fromList body)
-  renderInline (FormField label req el) = do
-    id <- fresh
-    el' <- renderFormElement id label (ensureValidField el)
-    pure $ H.span [ A.class_ (A.className "slamdown-field") ]
-                  [ H.label (if requiresId then [ A.for id ] else [])
-                            [ H.text (label ++ requiredLabel) ]
-                  , el'
-                  ]
-    where
-    requiredLabel = if req then "*" else ""
-    requiresId = case el of
-      CheckBoxes _ _ -> false
-      RadioButtons _ _ -> false
-      _ -> true
+    renderInline :: forall p. FreshRenderer p Inline
+    renderInline i =
+      case i of
+        Str s -> pure $ H.text s
+        Entity s -> pure $ H.text s
+        Space -> pure $ H.text " "
+        SoftBreak -> pure $ H.text "\n"
+        LineBreak -> pure $ H.br_
+        Emph is -> H.em_ <$> traverse renderInline (fromList is)
+        Strong is -> H.strong_ <$> traverse renderInline (fromList is)
+        Code _ c -> pure $ H.code_ [ H.text c ]
+        Link body tgt -> do
+          let
+            href (InlineLink url) = url
+            href (ReferenceLink tgt) = maybe "" ("#" ++) tgt
+          H.a [ P.href $ href tgt ] <$> traverse renderInline (fromList body)
+        Image body url ->
+          pure $ H.img
+            [ P.src url
+            , P.alt $ foldMap stripInline body
+            ]
+        FormField label req el -> do
+          ident <- fresh config.formName
+          el' <- renderFormElement config state ident label (ensureValidField el)
+          let
+            requiredLabel = if req then "*" else ""
+            requiresId = case el of
+              CheckBoxes _ _ -> false
+              RadioButtons _ _ -> false
+              _ -> true
 
-  -- | Make sure that the default value of a form field is valid, and if it is not, strip it out.
-  ensureValidField :: FormField -> FormField
-  ensureValidField field =
-    V.runV
-      (const $ stripDefaultValue field)
-      id
-      (validateFormField field)
-    where
-      stripDefaultValue :: FormField -> FormField
-      stripDefaultValue field =
-        case field of
-           TextBox t _ -> TextBox t Nothing
-           DropDown ls _ -> DropDown ls Nothing
-           _ -> field
+          pure $ H.span
+            [ P.class_ (H.className "slamdown-field") ]
+            [ H.label
+              (if requiresId then [ P.for ident ] else [])
+              [ H.text (label ++ requiredLabel) ]
+            , el'
+            ]
 
-  renderFormElement :: String -> String -> FormField -> Fresh (H.HTML (f SlamDownEvent))
-  renderFormElement id label (TextBox t Nothing) =
-    pure $ renderTextInput featureSupport id label t (lookupTextValue label Nothing)
-  renderFormElement id label (TextBox t (Just (Literal value))) =
-    pure $ renderTextInput featureSupport id label t (lookupTextValue label (Just value))
-  renderFormElement _ label (RadioButtons (Literal def) (Literal ls)) =
-    H.ul [ A.class_ (A.className "slamdown-radios") ] <$> traverse (\val -> radio (Just val == sel) val) (fromList (Cons def ls))
-    where
-    sel = lookupTextValue label (Just def)
-    radio checked value = do
-      id <- fresh
-      pure $ H.li_ [ H.input [ A.checked checked
-                             , A.type_ "radio"
-                             , A.id_ id
-                             , A.name label
-                             , A.value value
-                             , E.onChange (E.input_ (TextChanged PlainText label value))
-                             ] []
-                   , H.label [ A.for id ] [ H.text value ]
-                   ]
-  renderFormElement _ label (CheckBoxes (Literal bs) (Literal ls)) =
-    H.ul [ A.class_ (A.className "slamdown-checkboxes") ] <$> (fromList <$> (zipWithA checkBox (lookupMultipleValues label bs ls) ls))
-    where
-    checkBox checked value = do
-      id <- fresh
-      pure $ H.li_ [ H.input [ A.checked checked
-                             , A.type_ "checkbox"
-                             , A.id_ id
-                             , A.name label
-                             , A.value value
-                             , E.onChecked (E.input (CheckBoxChanged label value))
-                             ] []
-                   , H.label [ A.for id ] [ H.text value ]
-                   ]
-  renderFormElement id label (DropDown (Literal ls) Nothing) = do
-    pure $ renderDropDown id label (Cons "" ls) Nothing
-  renderFormElement id label (DropDown (Literal ls) (Just (Literal sel))) = do
-    pure $ renderDropDown id label ls (lookupTextValue label (Just sel))
-  renderFormElement _ _ _ = pure $ unsupportedFormElement
+    stripInline :: Inline -> String
+    stripInline i =
+      case i of
+        Str s -> s
+        Entity s -> s
+        Space -> " "
+        SoftBreak -> "\n"
+        LineBreak -> "\n"
+        Emph is -> foldMap stripInline is
+        Strong is -> foldMap stripInline is
+        Code _ c -> c
+        Link body _ -> foldMap stripInline body
+        _ -> ""
 
-  lookupTextValue :: String -> Maybe String -> Maybe String
-  lookupTextValue key def =
-    case M.lookup key m of
-      Just (SingleValue _ val) -> Just val
-      _ -> def
+    renderBlock :: forall p. FreshRenderer p Block
+    renderBlock b =
+      case b of
+        Paragraph is ->
+          H.p_ <$> traverse renderInline (fromList is)
+        Header lvl is ->
+          h_ lvl <$> traverse renderInline (fromList is)
+        Blockquote bs ->
+          H.blockquote_ <$> traverse renderBlock (fromList bs)
+        Lst lt bss -> do
+          let
+            item :: FreshRenderer p (List Block)
+            item bs = H.li_ <$> traverse renderBlock (fromList bs)
+          el_ lt <$> traverse item (fromList bss)
+        CodeBlock _ ss ->
+          pure $ H.pre_ [ H.code_ [ H.text (joinWith "\n" $ fromList ss) ] ]
+        LinkReference l url ->
+          pure $ H.p_
+            [ H.text (l <> ": ")
+            , H.a [ P.name l, P.id_ l, P.href url ] [ H.text url ]
+            ]
+        Rule ->
+          pure H.hr_
 
-  lookupMultipleValues :: String -> List Boolean -> List String -> List Boolean
-  lookupMultipleValues key def ls =
-    case M.lookup key m of
-      Just (MultipleValues val) -> (`S.member` val) <$> ls
-      _ -> def
+    -- | Make sure that the default value of a form field is valid, and if it is not, strip it out.
+    ensureValidField :: FormField -> FormField
+    ensureValidField field =
+      V.runV
+        (const $ stripDefaultValue field)
+        id
+        (validateFormField field)
+      where
+        stripDefaultValue :: FormField -> FormField
+        stripDefaultValue field =
+          case field of
+             TextBox t _ -> TextBox t Nothing
+             DropDown ls _ -> DropDown ls Nothing
+             _ -> field
 
-  fresh :: Fresh String
-  fresh = do
-    n <- get :: Fresh Int
-    modify (+ 1)
-    pure (formName ++ "-" ++ show n)
+renderRadio :: forall p. String -> String -> String -> FreshRenderer p Boolean
+renderRadio formName label value checked = do
+  id <- fresh formName
+  pure $ H.li_
+    [ H.input
+        [ P.checked checked
+        , P.inputType P.InputRadio
+        , P.id_ id
+        , P.name label
+        , P.value value
+        , E.onValueChange (E.input_ (TextChanged PlainText label value))
+        ]
+    , H.label [ P.for id ] [ H.text value ]
+    ]
+
+renderCheckBox :: forall p. String -> String -> String -> FreshRenderer p Boolean
+renderCheckBox formName label value checked = do
+  id <- fresh formName
+  pure $ H.li_
+    [ H.input
+        [ P.checked checked
+        , P.inputType P.InputRadio
+        , P.id_ id
+        , P.name label
+        , P.value value
+        , E.onChecked (E.input (CheckBoxChanged label value))
+        ]
+    , H.label [ P.for id ] [ H.text value ]
+    ]
+
+renderDropDown
+  :: forall p
+   . String
+  -> String
+  -> List String
+  -> Maybe String
+  -> H.HTML p (SlamDownQuery Unit)
+renderDropDown id label ls sel =
+  H.select
+    [ P.id_ id
+    , P.name label
+    , E.onValueChange (E.input (TextChanged PlainText label))
+    ]
+    (fromList $ maybe option option' sel <$> ls)
+  where
+    option :: String -> H.HTML p (SlamDownQuery Unit)
+    option value = H.option [ P.value value ] [ H.text value ]
+
+    option' :: String -> String -> H.HTML p (SlamDownQuery Unit)
+    option' sel value = H.option [ P.selected (value == sel), P.value value ] [ H.text value ]
 
 availableInputType :: BrowserFeatures -> TextBoxType -> IT.InputType
 availableInputType features tbt =
@@ -266,41 +410,86 @@ availableInputType features tbt =
    inputType = textBoxTypeToInputType tbt
 
 textBoxTypeToInputType :: TextBoxType -> IT.InputType
-textBoxTypeToInputType PlainText = IT.Text
-textBoxTypeToInputType Date = IT.Date
-textBoxTypeToInputType Time = IT.Time
-textBoxTypeToInputType DateTime = IT.DateTimeLocal
-textBoxTypeToInputType Numeric = IT.Number
+textBoxTypeToInputType ty =
+  case ty of
+    PlainText -> IT.Text
+    Date -> IT.Date
+    Time -> IT.Time
+    DateTime -> IT.DateTimeLocal
+    Numeric -> IT.Number
 
-renderTextInput :: forall f. (Alternative f) => BrowserFeatures -> String -> String -> TextBoxType -> Maybe String -> H.HTML (f SlamDownEvent)
-renderTextInput browserFeatures id label t value =
-  H.input ([ A.type_ (IT.renderInputType $ availableInputType browserFeatures t)
-           , A.id_ id
-           , A.name label
-           , E.onInput (E.input (TextChanged t label))
-           , A.value (fromMaybe "" value)
-           ]) []
+inputTypeToHalogenInputType :: IT.InputType -> P.InputType
+inputTypeToHalogenInputType it =
+  case it of
+    IT.Color -> P.InputColor
+    IT.Date -> P.InputDate
+    IT.DateTime -> P.InputDatetime
+    IT.DateTimeLocal -> P.InputDatetimeLocal
+    IT.Time -> P.InputTime
+    IT.Month -> P.InputMonth
+    IT.Week -> P.InputWeek
+    IT.Email -> P.InputEmail
+    IT.Url -> P.InputUrl
+    IT.Number -> P.InputNumber
+    IT.Search -> P.InputSearch
+    IT.Range -> P.InputRange
+    IT.Text -> P.InputText
 
-renderDropDown :: forall f. (Alternative f) => String -> String -> List String -> Maybe String -> H.HTML (f SlamDownEvent)
-renderDropDown id label ls sel =
-  H.select [ A.id_ id
-           , A.name label
-           , E.onValueChanged (E.input (TextChanged PlainText label))
-           ]
-           (fromList $ maybe option option' sel <$> ls)
+renderFormElement
+  :: forall p
+   . SlamDownConfig
+  -> SlamDownStateR
+  -> String
+  -> String
+  -> FreshRenderer p FormField
+renderFormElement config st id label field =
+  case field of
+    TextBox t Nothing ->
+      pure <<< renderTextInput t $ lookupTextValue label Nothing
+    TextBox t (Just (Literal value)) ->
+      pure <<< renderTextInput t <<< lookupTextValue label $ Just value
+    RadioButtons (Literal def) (Literal ls) -> do
+      let
+        sel = lookupTextValue label $ Just def
+        renderRadio' val = renderRadio config.formName label val $ Just val == sel
+      radios <- traverse renderRadio' <<< fromList $ Cons def ls
+      pure $ H.ul [ P.class_ (H.className "slamdown-radios") ] radios
+    CheckBoxes (Literal bs) (Literal ls) -> do
+      let bools = lookupMultipleValues label bs ls
+      checkBoxes <- zipWithA (renderCheckBox config.formName label) ls bools
+      pure $ H.ul [ P.class_ (H.className "slamdown-checkboxes") ] $ fromList checkBoxes
+    DropDown (Literal ls) Nothing ->
+      pure $ renderDropDown id label (Cons "" ls) Nothing
+    DropDown (Literal ls) (Just (Literal sel)) ->
+      pure $ renderDropDown id label ls (lookupTextValue label (Just sel))
+    _ -> pure $ H.text "Unsupported form element"
+
   where
-  option :: String -> H.HTML (f SlamDownEvent)
-  option value = H.option [ A.value value ] [ H.text value ]
-  option' :: String -> String -> H.HTML (f SlamDownEvent)
-  option' sel value = H.option [ A.selected (value == sel), A.value value ] [ H.text value ]
+    renderTextInput :: TextBoxType -> Maybe String -> H.HTML p (SlamDownQuery Unit)
+    renderTextInput t value =
+      H.input
+        [ P.inputType compatibleInputType
+        , P.id_ id
+        , P.name label
+        , E.onValueInput (E.input (TextChanged t label))
+        , P.value (fromMaybe "" value)
+        ]
+      where
+        compatibleInputType =
+          inputTypeToHalogenInputType $ availableInputType config.browserFeatures t
 
-textBoxTypeName :: TextBoxType -> String
-textBoxTypeName t = case t of
-  PlainText -> "text"
-  Date -> "date"
-  Time -> "time"
-  DateTime -> "datetime-local"
-  Numeric -> "number"
+    lookupTextValue :: String -> Maybe String -> Maybe String
+    lookupTextValue key def =
+      case M.lookup key st.formState of
+        Just (SingleValue _ val) -> Just val
+        _ -> def
 
-unsupportedFormElement :: forall a. H.HTML a
-unsupportedFormElement = H.text "Unsupported form element"
+    lookupMultipleValues :: String -> List Boolean -> List String -> List Boolean
+    lookupMultipleValues key def ls =
+      case M.lookup key st.formState of
+        Just (MultipleValues val) -> (`S.member` val) <$> ls
+        _ -> def
+
+-- | Bundles up the SlamDown renderer and state machine into a Halogen component.
+slamDownComponent :: forall g. SlamDownConfig -> H.Component SlamDownState SlamDownQuery g
+slamDownComponent config = H.component (renderSlamDown config) evalSlamDownQuery
