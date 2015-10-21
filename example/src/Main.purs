@@ -53,15 +53,13 @@ instance eqSlamDownSlot :: Eq SlamDownSlot where
 
 type DemoInstalledState g = H.InstalledState State SlamDownState Query SlamDownQuery g SlamDownSlot
 type DemoComponent g = H.Component (DemoInstalledState g) (Coproduct Query (H.ChildF SlamDownSlot SlamDownQuery)) g
-type DemoRender g = H.RenderParent State SlamDownState Query SlamDownQuery g SlamDownSlot
-type DemoEval g = H.EvalParent Query State SlamDownState Query SlamDownQuery g SlamDownSlot
-type DemoPeek f g = H.Peek f State SlamDownState Query SlamDownQuery g SlamDownSlot
-type DemoQueryF s g = H.QueryF State s Query SlamDownQuery g SlamDownSlot
+type DemoHTML g = H.ParentHTML SlamDownState Query SlamDownQuery g SlamDownSlot
+type DemoDSL g = H.ParentDSL State SlamDownState Query SlamDownQuery g SlamDownSlot
 
 ui :: forall g. (Plus g) => SlamDownConfig -> DemoComponent g
 ui config = H.parentComponent' render eval peek
   where
-    render :: DemoRender g
+    render :: State -> DemoHTML g
     render state = do
       H.div
         [ P.class_ $ H.className "container" ]
@@ -85,16 +83,16 @@ ui config = H.parentComponent' render eval peek
         , H.pre_ [ H.code_ [ H.text (show state.formState) ] ]
         ]
 
-    eval :: DemoEval g
+    eval :: Natural Query (DemoDSL g)
     eval (DocumentChanged text next) = do
       H.query SlamDownSlot <<< H.action <<< SetDocument $ parseMd text
       updateFormState
       pure next
 
-    peek :: forall f. DemoPeek f g
+    peek :: forall a. H.ChildF SlamDownSlot SlamDownQuery a -> DemoDSL g Unit
     peek _ = updateFormState
 
-    updateFormState :: forall s. Free (H.HalogenF State Query (DemoQueryF s g)) Unit
+    updateFormState :: DemoDSL g Unit
     updateFormState =
       H.query SlamDownSlot (H.request GetFormState) >>=
         maybe (pure unit) \formState -> H.modify (_ { formState = formState })
