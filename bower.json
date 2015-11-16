@@ -1,6 +1,10 @@
 {
   "name": "purescript-markdown-halogen",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/slamdata/purescript-markdown-halogen.git"
+  },
   "ignore": [
     "**/.*",
     "bower_components",
@@ -15,10 +19,10 @@
   "dependencies": {
     "purescript-browserfeatures": "^0.4.1",
     "purescript-halogen": "^0.5.2",
-    "purescript-markdown": "^1.10.0",
-    "purescript-validation": "^0.2.0",
+    "purescript-markdown": "^1.11.0",
     "purescript-prelude": "^0.1.2",
     "purescript-sets": "^0.5.0",
-    "purescript-strongcheck": "^0.13.0"
+    "purescript-strongcheck": "^0.14.4",
+    "purescript-validation": "^0.2.0"
   }
 }
