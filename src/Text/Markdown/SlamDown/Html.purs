@@ -19,37 +19,35 @@ module Text.Markdown.SlamDown.Html
   where
 
 import Prelude
-import Control.Alternative (Alternative)
+
 import Control.Monad.State (State(), evalState)
 import Control.Monad.State.Class (get, modify)
 
+import Data.BrowserFeatures
+import Data.BrowserFeatures.InputType as IT
 import Data.Foldable (foldMap, foldl)
 import Data.List (List(..), mapMaybe, fromList, toList, zipWithA, zip, singleton)
 import Data.Maybe (Maybe(..), maybe, fromMaybe)
 import Data.Monoid (mempty)
+import Data.Set as S
 import Data.String (joinWith)
+import Data.StrMap as M
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
-import qualified Data.Validation as V
+import Data.Validation as V
+
+import Halogen (get, modify) as H
+import Halogen.Component as H
+import Halogen.HTML.Core as H
+import Halogen.HTML.Events.Indexed as E
+import Halogen.HTML.Indexed as H
+import Halogen.HTML.Properties.Indexed as P
+
+import Test.StrongCheck as SC
+import Test.StrongCheck.Gen as SC
 
 import Text.Markdown.SlamDown
-import Text.Markdown.SlamDown.Parser.Inline (validateFormField, validateTextOfType)
-
-import qualified Data.Array as Array
-import qualified Data.Set as S
-import qualified Data.StrMap as M
-import qualified Halogen (get, modify) as H
-import qualified Halogen.Component as H
-import qualified Halogen.HTML.Core as H
-import qualified Halogen.HTML.Indexed as H
-import qualified Halogen.HTML.Properties.Indexed as P
-import qualified Halogen.HTML.Events.Indexed as E
-
-import Data.BrowserFeatures
-import qualified Data.BrowserFeatures.InputType as IT
-
-import qualified Test.StrongCheck as SC
-import qualified Test.StrongCheck.Gen as SC
+import Text.Markdown.SlamDown.Parser.Inline (validateFormField)
 
 data FormFieldValue
   = SingleValue TextBoxType String
@@ -92,17 +90,27 @@ instance arbitrarySlamDownState :: SC.Arbitrary SlamDownState where
       , formState : formState
       }
 
--- | By default, all features are enabled.
+-- | By default, no features are enabled.
 defaultBrowserFeatures :: BrowserFeatures
 defaultBrowserFeatures =
-  { inputTypeSupported : \_ -> true
+  { inputTypeSupported : const false
   }
 
+-- | The initial empty state of the form, with an empty document.
 emptySlamDownState :: SlamDownState
 emptySlamDownState =
   SlamDownState
     { document : SlamDown mempty
     , formState : M.empty
+    }
+
+-- | The initial state of the form based on a document value. All fields use
+-- | their default values.
+makeSlamDownState :: SlamDown -> SlamDownState
+makeSlamDownState doc =
+  SlamDownState
+    { document : doc
+    , formState : formStateFromDocument doc
     }
 
 formFieldGetDefaultValue :: FormField -> Maybe FormFieldValue
@@ -135,14 +143,6 @@ formDescFromDocument = M.fromList <<< everything (const mempty) phi
     phi :: Inline -> List (Tuple String FormField)
     phi (FormField label _ field) = singleton (Tuple label field)
     phi _ = mempty
-
--- | The initial state of form, in which all fields use their default values
-makeSlamDownState :: SlamDown -> SlamDownState
-makeSlamDownState doc =
-  SlamDownState
-    { document : doc
-    , formState : formStateFromDocument doc
-    }
 
 changeDocument :: SlamDown -> SlamDownState -> SlamDownState
 changeDocument doc (SlamDownState state) =
@@ -220,8 +220,8 @@ evalSlamDownQuery e =
       pure next
 
 type SlamDownConfig =
-  { browserFeatures :: BrowserFeatures
-  , formName :: String
+  { formName :: String
+  , browserFeatures :: BrowserFeatures
   }
 
 type Fresh = State Int
@@ -271,7 +271,7 @@ renderSlamDown config (SlamDownState state) =
         Link body tgt -> do
           let
             href (InlineLink url) = url
-            href (ReferenceLink tgt) = maybe "" ("#" ++) tgt
+            href (ReferenceLink tgt') = maybe "" ("#" ++) tgt'
           H.a [ P.href $ href tgt ] <$> traverse renderInline (fromList body)
         Image body url ->
           pure $ H.img
