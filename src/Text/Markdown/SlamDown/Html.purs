@@ -25,8 +25,8 @@ import Control.Monad.State.Class (get, modify)
 
 import Data.BrowserFeatures
 import Data.BrowserFeatures.InputType as IT
-import Data.Foldable (foldMap, foldl)
-import Data.List (List(..), mapMaybe, fromList, toList, zipWithA, zip, singleton)
+import Data.Foldable (foldMap, foldr)
+import Data.List (List(..), mapMaybe, fromList, toList, zipWithA, zip, singleton, filter)
 import Data.Maybe (Maybe(..), maybe, fromMaybe)
 import Data.Monoid (mempty)
 import Data.Set as S
@@ -167,7 +167,7 @@ changeDocument doc (SlamDownState state) =
         state.formState
 
     prunedFormState :: SlamDownFormState
-    prunedFormState = foldl (flip M.delete) state.formState keysToPrune
+    prunedFormState = foldr M.delete state.formState keysToPrune
 
     mergedFormState :: SlamDownFormState
     mergedFormState = prunedFormState `M.union` formStateFromDocument doc
@@ -177,6 +177,7 @@ data SlamDownQuery a
   | CheckBoxChanged String String Boolean a
   | SetDocument SlamDown a
   | GetFormState (SlamDownFormState -> a)
+  | PopulateForm SlamDownFormState a
 
 instance functorSlamDownQuery :: Functor SlamDownQuery where
   map f e =
@@ -185,6 +186,7 @@ instance functorSlamDownQuery :: Functor SlamDownQuery where
       CheckBoxChanged k v b a -> CheckBoxChanged k v b $ f a
       SetDocument doc a -> SetDocument doc $ f a
       GetFormState k -> GetFormState (f <<< k)
+      PopulateForm s a -> PopulateForm s $ f a
 
 instance arbitrarySlamDownQuery :: (SC.Arbitrary a) => SC.Arbitrary (SlamDownQuery a) where
   arbitrary = do
@@ -215,6 +217,13 @@ evalSlamDownQuery e =
     GetFormState k -> do
       SlamDownState state <- H.get
       pure $ k state.formState
+    PopulateForm values next -> do
+      H.modify \(SlamDownState { document }) ->
+        let desc = formDescFromDocument document
+            keysToPrune = filter (\newKey -> not (newKey `M.member` desc)) (toList (M.keys values))
+            prunedValues = foldr M.delete values keysToPrune
+        in SlamDownState { document, formState: prunedValues }
+      pure next
     SetDocument doc next -> do
       H.modify $ changeDocument doc
       pure next
