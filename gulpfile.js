@@ -5,7 +5,7 @@ var gulp = require("gulp"),
     jsValidate = require("gulp-jsvalidate"),
     rimraf = require("rimraf"),
     webpack = require("webpack-stream");
-    
+
 var sources = [
     "src/**/*.purs",
     "bower_components/purescript-*/src/**/*.purs"
@@ -25,16 +25,9 @@ var exampleForeigns = [
 ];
 
 
-gulp.task("clean-docs", function (cb) {
-  rimraf("docs", cb);
-});
-
-gulp.task("clean-output", function (cb) {
+gulp.task("clean", function (cb) {
   rimraf("output", cb);
 });
-
-gulp.task("clean", ["clean-docs", "clean-output"]);
-
 
 gulp.task("make", function() {
     return purescript.psc({
@@ -79,13 +72,4 @@ gulp.task("jsvalidate", ["make"], function() {
         .pipe(jsValidate());
 });
 
-gulp.task("docs", function() {
-    return purescript.pscDocs({
-        src: sources,
-        docgen: {
-            "Text.Markdown.SlamDown.Html": "docs/Text/Markdown/SlamDown/Html.md"
-        }
-    });
-});
-
-gulp.task("default", ["jsvalidate", "docs", "example"]);
+gulp.task("default", ["jsvalidate", "example"]);
