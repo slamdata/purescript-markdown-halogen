@@ -379,7 +379,7 @@ renderCheckBox formName label value checked = do
   pure $ H.li_
     [ H.input
         [ P.checked checked
-        , P.inputType P.InputRadio
+        , P.inputType P.InputCheckbox
         , P.id_ id
         , P.name label
         , P.value value
