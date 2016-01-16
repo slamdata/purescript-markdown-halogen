@@ -464,8 +464,7 @@ renderFormElement config st id label field =
       radios <- traverse renderRadio' <<< fromList $ Cons def ls
       pure $ H.ul [ P.class_ (H.className "slamdown-radios") ] radios
     CheckBoxes (Literal bs) (Literal ls) -> do
-      let bools = lookupMultipleValues label bs ls
-      checkBoxes <- zipWithA (renderCheckBox config.formName label) ls bools
+      checkBoxes <- zipWithA (renderCheckBox config.formName label) ls bs
       pure $ H.ul [ P.class_ (H.className "slamdown-checkboxes") ] $ fromList checkBoxes
     DropDown (Literal ls) Nothing ->
       pure $ renderDropDown id label (Cons "" ls) Nothing
