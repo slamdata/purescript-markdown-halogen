@@ -25,8 +25,8 @@ import Control.Monad.State.Class (get, modify)
 
 import Data.BrowserFeatures
 import Data.BrowserFeatures.InputType as IT
-import Data.Foldable (foldMap, foldr)
-import Data.List (List(..), mapMaybe, fromList, toList, zipWithA, zip, singleton, filter)
+import Data.Foldable (foldMap, foldr, elem)
+import Data.List (List(..), mapMaybe, fromList, toList, zipWithA, zip, singleton, filter, nub)
 import Data.Maybe (Maybe(..), maybe, fromMaybe)
 import Data.Monoid (mempty)
 import Data.Set as S
@@ -461,7 +461,8 @@ renderFormElement config st id label field =
       let
         sel = lookupTextValue label $ Just def
         renderRadio' val = renderRadio config.formName label val $ Just val == sel
-      radios <- traverse renderRadio' <<< fromList $ Cons def ls
+        options = if def `elem` ls then ls else Cons def ls
+      radios <- traverse renderRadio' <<< fromList $ nub options
       pure $ H.ul [ P.class_ (H.className "slamdown-radios") ] radios
     CheckBoxes (Literal bs) (Literal ls) -> do
       let bools = lookupMultipleValues label bs ls
