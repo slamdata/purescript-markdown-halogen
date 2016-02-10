@@ -1,13 +1,21 @@
 language: node_js
-sudo: false
 node_js:
   - 4
+env:
+  - CXX=g++-4.8
 install:
   - npm install gulp bower -g
   - npm install
   - bower update
 script:
-  - gulp
+  - gulp make
+  - gulp example
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - g++-4.8
 after_success:
 - >-
   test $TRAVIS_TAG &&

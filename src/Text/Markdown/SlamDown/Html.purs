@@ -468,9 +468,12 @@ renderFormElement config st id label field =
       checkBoxes <- zipWithA (renderCheckBox config.formName label) ls bs
       pure $ H.ul [ P.class_ (H.className "slamdown-checkboxes") ] $ fromList checkBoxes
     DropDown (Literal ls) Nothing ->
-      pure $ renderDropDown id label (Cons "" ls) Nothing
-    DropDown (Literal ls) (Just (Literal sel)) ->
-      pure $ renderDropDown id label ls (lookupTextValue label (Just sel))
+      pure $ renderDropDown id label ls Nothing
+    DropDown (Literal ls) (Just (Literal def)) -> do
+      let
+        options = if def `elem` ls then ls else Cons def ls
+        sel = lookupTextValue label $ Just def
+      pure $ renderDropDown id label options sel
     _ -> pure $ H.text "Unsupported form element"
 
   where

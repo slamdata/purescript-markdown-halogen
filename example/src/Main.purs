@@ -7,7 +7,6 @@ import qualified Data.StrMap as SM
 import DOM
 import DOM.BrowserFeatures.Detectors
 
-import Data.BrowserFeatures
 import Data.Functor.Coproduct
 import Data.NaturalTransformation (Natural())
 
@@ -15,10 +14,9 @@ import Control.Monad.Aff (runAff)
 import Control.Monad.Aff.AVar (AVAR())
 import Control.Monad.Eff
 import Control.Monad.Eff.Exception (EXCEPTION(), throwException)
-import Control.Monad.Free (Free())
 import Control.Plus
 
-import qualified Halogen (modify, get, request, action, runUI, ChildF(..), HalogenF(), QueryF()) as H
+import qualified Halogen (modify, request, action, runUI, ChildF()) as H
 import qualified Halogen.Util (appendToBody) as H
 import qualified Halogen.Component as H
 
@@ -26,7 +24,6 @@ import qualified Halogen.HTML.Indexed as H
 import qualified Halogen.HTML.Properties.Indexed as P
 import qualified Halogen.HTML.Events.Indexed as E
 
-import Text.Markdown.SlamDown
 import Text.Markdown.SlamDown.Html
 import Text.Markdown.SlamDown.Parser
 
