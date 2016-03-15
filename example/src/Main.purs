@@ -1,31 +1,28 @@
 module Main where
 
 import Prelude
-import Data.Maybe (maybe)
-import qualified Data.StrMap as SM
 
-import DOM
-import DOM.BrowserFeatures.Detectors
-
-import Data.Functor.Coproduct
-import Data.NaturalTransformation (Natural())
-
-import Control.Monad.Aff (runAff)
+import Control.Bind ((=<<))
 import Control.Monad.Aff.AVar (AVAR())
-import Control.Monad.Eff
-import Control.Monad.Eff.Exception (EXCEPTION(), throwException)
-import Control.Plus
+import Control.Monad.Eff (Eff())
+import Control.Monad.Eff.Exception (EXCEPTION())
 
-import qualified Halogen (modify, request, action, runUI, ChildF()) as H
-import qualified Halogen.Util (appendToBody) as H
-import qualified Halogen.Component as H
+import Data.Functor.Coproduct (Coproduct())
+import Data.Maybe (Maybe(..), maybe)
+import Data.NaturalTransformation (Natural())
+import Data.StrMap as SM
 
-import qualified Halogen.HTML.Indexed as H
-import qualified Halogen.HTML.Properties.Indexed as P
-import qualified Halogen.HTML.Events.Indexed as E
+import DOM (DOM())
+import DOM.BrowserFeatures.Detectors (detectBrowserFeatures)
 
-import Text.Markdown.SlamDown.Html
-import Text.Markdown.SlamDown.Parser
+import Halogen as H
+import Halogen.HTML.Events.Indexed as HE
+import Halogen.HTML.Indexed as HH
+import Halogen.HTML.Properties.Indexed as HP
+import Halogen.Util (runHalogenAff, awaitBody)
+
+import Text.Markdown.SlamDown.Html (SlamDownConfig(), SlamDownState(), SlamDownQuery(..), SlamDownFormState(), slamDownComponent, emptySlamDownState)
+import Text.Markdown.SlamDown.Parser (parseMd)
 
 type State =
   { markdown :: String
@@ -48,36 +45,36 @@ instance ordSlamDownSlot :: Ord SlamDownSlot where
 instance eqSlamDownSlot :: Eq SlamDownSlot where
   eq _ _ = true
 
-type DemoInstalledState g = H.InstalledState State SlamDownState Query SlamDownQuery g SlamDownSlot
+type DemoInstalledState g = H.ParentState State SlamDownState Query SlamDownQuery g SlamDownSlot
 type DemoComponent g = H.Component (DemoInstalledState g) (Coproduct Query (H.ChildF SlamDownSlot SlamDownQuery)) g
 type DemoHTML g = H.ParentHTML SlamDownState Query SlamDownQuery g SlamDownSlot
 type DemoDSL g = H.ParentDSL State SlamDownState Query SlamDownQuery g SlamDownSlot
 
-ui :: forall g. (Plus g) => SlamDownConfig -> DemoComponent g
-ui config = H.parentComponent' render eval peek
+ui :: forall g. (Functor g) => SlamDownConfig -> DemoComponent g
+ui config = H.parentComponent { render, eval, peek: Just peek }
   where
     render :: State -> DemoHTML g
     render state = do
-      H.div
-        [ P.class_ $ H.className "container" ]
-        [ H.h2_ [ H.text "Markdown" ]
-        , H.div_
-            [ H.textarea
-                [ P.class_ $ H.className "form-control"
-                , P.value state.markdown
-                , E.onValueInput $ E.input DocumentChanged
+      HH.div
+        [ HP.class_ $ HH.className "container" ]
+        [ HH.h2_ [ HH.text "Markdown" ]
+        , HH.div_
+            [ HH.textarea
+                [ HP.class_ $ HH.className "form-control"
+                , HP.value state.markdown
+                , HE.onValueInput $ HE.input DocumentChanged
                 ]
             ]
-        , H.h2_ [ H.text "HTML Output" ]
-        , H.div
-            [ P.class_ (H.className "well") ]
-            [ H.slot SlamDownSlot \_ ->
+        , HH.h2_ [ HH.text "HTML Output" ]
+        , HH.div
+            [ HP.class_ (HH.className "well") ]
+            [ HH.slot SlamDownSlot \_ ->
                 { component : slamDownComponent config
                 , initialState : emptySlamDownState
                 }
             ]
-        , H.h2_ [ H.text "Form State" ]
-        , H.pre_ [ H.code_ [ H.text (show state.formState) ] ]
+        , HH.h2_ [ HH.text "Form State" ]
+        , HH.pre_ [ HH.code_ [ HH.text (show state.formState) ] ]
         ]
 
     eval :: Natural Query (DemoDSL g)
@@ -98,6 +95,5 @@ main :: Eff (avar :: AVAR, err :: EXCEPTION, dom :: DOM) Unit
 main = do
   browserFeatures <- detectBrowserFeatures
   let config = { formName : "slamdown-demo-form", browserFeatures : browserFeatures }
-  runAff throwException (const (pure unit)) $ do
-    app <- H.runUI (ui config) (H.installedState initialState)
-    H.appendToBody app.node
+  runHalogenAff $
+    H.runUI (ui config) (H.parentState initialState) =<< awaitBody

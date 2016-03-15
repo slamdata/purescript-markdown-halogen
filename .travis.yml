@@ -1,15 +1,14 @@
 language: node_js
 dist: trusty
 sudo: required
-node_js:
-  - 5
+node_js: 5
 install:
-  - npm install gulp bower -g
   - npm install
-  - bower update
+  - npm install -g bower
+  - bower install
 script:
-  - gulp make
-  - gulp example
+  - npm run build
+  - npm run example
 after_success:
 - >-
   test $TRAVIS_TAG &&
