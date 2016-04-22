@@ -18,7 +18,7 @@
   "dependencies": {
     "purescript-browserfeatures": "^0.4.1",
     "purescript-halogen": "^0.6.2",
-    "purescript-markdown": "^3.0.0",
+    "purescript-markdown": "^3.1.0",
     "purescript-prelude": "^0.1.2",
     "purescript-sets": "^0.5.0",
     "purescript-strongcheck": "^0.14.4",
