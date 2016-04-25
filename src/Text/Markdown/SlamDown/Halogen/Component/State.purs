@@ -50,6 +50,13 @@ type SlamDownStateR a =
 -- | The state of a SlamDown form
 newtype SlamDownState a = SlamDownState (SlamDownStateR a)
 
+instance functorSlamDownState ∷ Functor SlamDownState where
+  map f (SlamDownState st) =
+    SlamDownState
+      { document: f <$> st.document
+      , formState: map f <$> st.formState
+      }
+
 getDocument ∷ Natural SlamDownState SD.SlamDownP
 getDocument (SlamDownState rec) = rec.document
 
