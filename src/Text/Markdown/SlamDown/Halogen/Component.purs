@@ -22,6 +22,7 @@ import Data.Functor.Compose (Compose(..), decompose)
 import Data.Identity (Identity(..), runIdentity)
 import Data.List as L
 import Data.Maybe as M
+import Data.Set as Set
 import Data.String as S
 import Data.StrMap as SM
 import Data.Traversable (traverse)
@@ -78,23 +79,27 @@ evalSlamDownQuery e =
             M.Just rb @ (SD.DropDown _ (Identity vals)) →
               case mval of
                 M.Just val →
-                  case L.elemIndex val vals of
-                    M.Just _ → SD.DropDown (M.Just $ pure val) (pure vals)
-                    M.Nothing → rb
+                  if F.elem val vals
+                  then SD.DropDown (M.Just $ pure val) (pure vals)
+                  else rb
                 M.Nothing → SD.DropDown M.Nothing (pure vals)
             _ → SD.DropDown (pure <$> mval) (pure $ M.maybe L.Nil L.singleton mval)
       pure next
 
     SDQ.CheckBoxChanged key val checked next → do
       let
+        updateSel ∷ Set.Set v → Set.Set v
+        updateSel =
+          if checked
+          then Set.insert val
+          else Set.delete val
+
         update ∷ M.Maybe (SDS.FormFieldValue v) → SDS.FormFieldValue v
-        update (M.Just cb @ (SD.CheckBoxes (Identity bs) (Identity vals))) =
-          case L.elemIndex val vals of
-            M.Just i →
-              let bs' = M.fromMaybe bs $ L.updateAt i checked bs
-              in SD.CheckBoxes (pure bs') (pure vals)
-            M.Nothing → cb
-        update _ = SD.CheckBoxes (pure (L.singleton checked)) (pure (L.singleton val))
+        update (M.Just cb @ (SD.CheckBoxes (Identity sel) (Identity vals))) =
+          SD.CheckBoxes (pure $ sel') (pure vals)
+          where
+            sel' = Set.toList $ Set.intersection (Set.fromList vals) $ updateSel $ Set.fromList sel
+        update _ = SD.CheckBoxes (pure $ Set.toList $ updateSel Set.empty) (pure $ L.singleton val)
 
       H.modify \state →
         SDS.modifyFormState
@@ -351,8 +356,11 @@ renderFormElement config st id label field =
         options = L.fromList $ if sel `F.elem` ls then ls else L.Cons sel ls
       radios ← traverse renderRadioButton' options
       pure $ HH.ul [ HP.class_ (HH.className "slamdown-radios") ] radios
-    SD.CheckBoxes (Identity bs) (Identity ls) → do
-      checkBoxes ← L.zipWithA (renderCheckBox label) ls bs
+    SD.CheckBoxes (Identity sel) (Identity ls) → do
+      let
+        sel' = Set.fromList sel
+        renderCheckBox' val = renderCheckBox label val (Set.member val sel')
+      checkBoxes ← traverse renderCheckBox' ls
       pure $ HH.ul [ HP.class_ (HH.className "slamdown-checkboxes") ] $ L.fromList checkBoxes
     SD.DropDown msel (Identity ls) →
       pure $
@@ -402,4 +410,3 @@ slamDownComponent config =
     { render: renderSlamDown config
     , eval: evalSlamDownQuery
     }
-
