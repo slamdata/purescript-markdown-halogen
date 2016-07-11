@@ -8,6 +8,7 @@ import Control.Monad.Eff (Eff())
 import Control.Monad.Eff.Exception (EXCEPTION())
 
 import Data.Functor.Coproduct (Coproduct())
+import Data.Foldable (for_)
 import Data.Maybe (Maybe(..), maybe)
 import Data.NaturalTransformation (Natural())
 import Data.StrMap as SM
@@ -79,7 +80,8 @@ ui config = H.parentComponent { render, eval, peek: Just peek }
 
     eval ∷ Natural Query (DemoDSL g)
     eval (DocumentChanged text next) = do
-      H.query SlamDownSlot <<< H.action <<< SetDocument $ parseMd text
+      for_ (parseMd text) \md →
+        H.query SlamDownSlot $ H.action $ SetDocument md
       updateFormState
       pure next
 
