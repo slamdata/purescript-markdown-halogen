@@ -30,6 +30,7 @@ import Data.Traversable (traverse)
 import Data.Validation.Semigroup as V
 
 import Halogen as H
+import Halogen.HTML.Core as HC
 import Halogen.HTML.Events.Indexed as HE
 import Halogen.HTML.Indexed as HH
 import Halogen.HTML.Properties.Indexed as HP
@@ -42,6 +43,8 @@ import Text.Markdown.SlamDown.Halogen.InputType as SDIT
 import Text.Markdown.SlamDown.Parser.Inline as SDPI
 import Text.Markdown.SlamDown.Pretty as SDPR
 import Text.Parsing.Parser as P
+
+import Unsafe.Coerce (unsafeCoerce)
 
 -- | By default, no features are enabled.
 defaultBrowserFeatures ∷ BrowserFeatures
@@ -380,7 +383,9 @@ renderFormElement config st id label field =
         , HP.id_ id
         , HP.name label
         , HE.onValueInput (HE.input (SDQ.TextBoxChanged label <<< parseInput))
-        ] <> M.maybe [] (\x → [HP.value x]) renderedValue
+        ]
+        <> typeSettings
+        <> M.maybe [] (\x → [HP.value x]) renderedValue
       where
         renderedValue =
           SDPR.prettyPrintTextBoxValue <$>
@@ -395,9 +400,22 @@ renderFormElement config st id label field =
             E.Right tb' → SD.transTextBox (runIdentity >>> pure) tb'
             E.Left err → SD.transTextBox (\_ → M.Nothing) tb
 
+        -- type signature required due to https://github.com/purescript/purescript/issues/2252
+        typeSettings :: forall r i. Array (HP.IProp r i)
+        typeSettings = case compatibleInputType, tb of
+          HP.InputTime, SD.Time SD.Seconds _ → [secondsStep]
+          HP.InputDatetimeLocal, SD.DateTime SD.Seconds _ → [secondsStep]
+          _, _ → []
+
         compatibleInputType =
           SDIT.inputTypeToHalogenInputType $
             SDIT.availableInputType config.browserFeatures tb
+
+secondsStep ∷ forall r i. HP.IProp r i
+secondsStep = refine $ HC.Attr M.Nothing (HC.attrName "step") "1"
+  where
+  refine :: HC.Prop i -> HP.IProp r i
+  refine = unsafeCoerce
 
 -- | Bundles up the SlamDown renderer and state machine into a Halogen component.
 slamDownComponent
