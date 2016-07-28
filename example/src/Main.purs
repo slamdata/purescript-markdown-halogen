@@ -2,18 +2,16 @@ module Main where
 
 import Prelude
 
-import Control.Bind ((=<<))
-import Control.Monad.Aff.AVar (AVAR())
-import Control.Monad.Eff (Eff())
-import Control.Monad.Eff.Exception (EXCEPTION())
+import Control.Monad.Aff.AVar (AVAR)
+import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Exception (EXCEPTION)
 
-import Data.Functor.Coproduct (Coproduct())
+import Data.Functor.Coproduct (Coproduct)
 import Data.Foldable (for_)
 import Data.Maybe (Maybe(..), maybe)
-import Data.NaturalTransformation (Natural())
 import Data.StrMap as SM
 
-import DOM (DOM())
+import DOM (DOM)
 import DOM.BrowserFeatures.Detectors (detectBrowserFeatures)
 
 import Halogen as H
@@ -22,7 +20,7 @@ import Halogen.HTML.Indexed as HH
 import Halogen.HTML.Properties.Indexed as HP
 import Halogen.Util (runHalogenAff, awaitBody)
 
-import Text.Markdown.SlamDown.Halogen.Component (SlamDownConfig(), SlamDownState(), SlamDownQuery(..), SlamDownFormState(), slamDownComponent, emptySlamDownState)
+import Text.Markdown.SlamDown.Halogen.Component (SlamDownConfig, SlamDownState, SlamDownQuery(..), SlamDownFormState, slamDownComponent, emptySlamDownState)
 import Text.Markdown.SlamDown.Parser (parseMd)
 
 type State =
@@ -78,7 +76,7 @@ ui config = H.parentComponent { render, eval, peek: Just peek }
         , HH.pre_ [ HH.code_ [ HH.text (show state.formState) ] ]
         ]
 
-    eval ∷ Natural Query (DemoDSL g)
+    eval ∷ Query ~> DemoDSL g
     eval (DocumentChanged text next) = do
       for_ (parseMd text) \md →
         H.query SlamDownSlot $ H.action $ SetDocument md

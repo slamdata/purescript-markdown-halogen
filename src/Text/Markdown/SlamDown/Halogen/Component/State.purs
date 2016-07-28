@@ -28,15 +28,15 @@ import Data.Identity as Id
 import Data.List as L
 import Data.Maybe as M
 import Data.Monoid (mempty)
-import Data.NaturalTransformation (Natural)
 import Data.StrMap as SM
 import Data.Tuple (Tuple(..))
-import Data.Validation as V
-import Test.StrongCheck as SC
+import Data.Validation.Semigroup as V
+
+import Test.StrongCheck.Arbitrary as SCA
 
 import Text.Markdown.SlamDown as SD
-import Text.Markdown.SlamDown.Traverse as SDT
 import Text.Markdown.SlamDown.Parser.Inline as SDPI
+import Text.Markdown.SlamDown.Traverse as SDT
 
 type FormFieldValue = SD.FormFieldP Id.Identity
 type SlamDownFormDesc a = SM.StrMap (SD.FormField a)
@@ -57,10 +57,10 @@ instance functorSlamDownState ∷ Functor SlamDownState where
       , formState: map f <$> st.formState
       }
 
-getDocument ∷ Natural SlamDownState SD.SlamDownP
+getDocument ∷ SlamDownState ~> SD.SlamDownP
 getDocument (SlamDownState rec) = rec.document
 
-getFormState ∷ Natural SlamDownState SlamDownFormState
+getFormState ∷ SlamDownState ~> SlamDownFormState
 getFormState (SlamDownState rec) = rec.formState
 
 modifyFormState
@@ -72,12 +72,12 @@ modifyFormState f (SlamDownState rec) =
   SlamDownState (rec { formState = f rec.formState })
 
 instance showSlamDownState ∷ (Show a) ⇒ Show (SlamDownState a) where
-  show (SlamDownState rec) = "(SlamDownState " ++ show rec.formState ++ ")"
+  show (SlamDownState rec) = "(SlamDownState " <> show rec.formState <> ")"
 
-instance arbitrarySlamDownState ∷ (SC.Arbitrary a, Ord a) ⇒ SC.Arbitrary (SlamDownState a) where
+instance arbitrarySlamDownState ∷ (SCA.Arbitrary a, Ord a) ⇒ SCA.Arbitrary (SlamDownState a) where
   arbitrary = do
-    document ← SC.arbitrary
-    formState ← SM.fromList <$> SC.arbitrary
+    document ← SCA.arbitrary
+    formState ← SM.fromList <$> SCA.arbitrary
     pure $ SlamDownState
       { document : document
       , formState : formState
@@ -94,7 +94,7 @@ getFormFieldValue key state =
     M.Just x → M.Just x
     M.Nothing → SM.lookup key <<< formStateFromDocument $ getDocument state
 
-formStateFromDocument ∷ Natural SD.SlamDownP SlamDownFormState
+formStateFromDocument ∷ SD.SlamDownP ~> SlamDownFormState
 formStateFromDocument =
   SM.fromList
     <<< SDT.everything (const mempty) phi
@@ -105,7 +105,7 @@ formStateFromDocument =
       → L.List (Tuple String (FormFieldValue v))
     phi (SD.FormField label _ field) =
       M.maybe mempty (L.singleton <<< Tuple label) $
-        V.runV (const M.Nothing) M.Just (SDPI.validateFormField field)
+        V.unV (const M.Nothing) M.Just (SDPI.validateFormField field)
           >>= formFieldGetDefaultValue
     phi _ = mempty
 
@@ -126,7 +126,7 @@ emptySlamDownState =
 
 -- | The initial state of the form based on a document value. All fields use
 -- | their default values.
-makeSlamDownState ∷ Natural SD.SlamDownP SlamDownState
+makeSlamDownState ∷ SD.SlamDownP ~> SlamDownState
 makeSlamDownState doc =
   SlamDownState
     { document : doc
@@ -134,7 +134,7 @@ makeSlamDownState doc =
     }
 
 
-formDescFromDocument ∷ Natural SD.SlamDownP SlamDownFormDesc
+formDescFromDocument ∷ SD.SlamDownP ~> SlamDownFormDesc
 formDescFromDocument =
   SM.fromList
     <<< SDT.everything (const mempty) phi
@@ -189,4 +189,3 @@ replaceDocument doc (SlamDownState state) =
 
     prunedFormState ∷ SlamDownFormState v → SlamDownFormState v
     prunedFormState st = F.foldr SM.delete st $ keysToPrune st
-
