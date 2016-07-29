@@ -15,6 +15,7 @@ import Prelude
 
 import Control.Alt ((<|>))
 
+import Data.Array as A
 import Data.BrowserFeatures (BrowserFeatures)
 import Data.Either as E
 import Data.Foldable as F
@@ -26,23 +27,24 @@ import Data.Set as Set
 import Data.String as S
 import Data.StrMap as SM
 import Data.Traversable (traverse)
-import Data.Validation as V
+import Data.Validation.Semigroup as V
 
 import Halogen as H
+import Halogen.HTML.Core as HC
 import Halogen.HTML.Events.Indexed as HE
 import Halogen.HTML.Indexed as HH
 import Halogen.HTML.Properties.Indexed as HP
 
 import Text.Markdown.SlamDown as SD
+import Text.Markdown.SlamDown.Halogen.Component.Query as SDQ
+import Text.Markdown.SlamDown.Halogen.Component.State as SDS
+import Text.Markdown.SlamDown.Halogen.Fresh as Fresh
+import Text.Markdown.SlamDown.Halogen.InputType as SDIT
 import Text.Markdown.SlamDown.Parser.Inline as SDPI
 import Text.Markdown.SlamDown.Pretty as SDPR
-
-import Text.Markdown.SlamDown.Halogen.InputType as SDIT
-import Text.Markdown.SlamDown.Halogen.Fresh as Fresh
-import Text.Markdown.SlamDown.Halogen.Component.State as SDS
-import Text.Markdown.SlamDown.Halogen.Component.Query as SDQ
-
 import Text.Parsing.Parser as P
+
+import Unsafe.Coerce (unsafeCoerce)
 
 -- | By default, no features are enabled.
 defaultBrowserFeatures ∷ BrowserFeatures
@@ -53,7 +55,8 @@ defaultBrowserFeatures =
 evalSlamDownQuery
   ∷ ∀ g v
   . (SD.Value v)
-  ⇒ H.Natural (SDQ.SlamDownQuery v) (H.ComponentDSL (SDS.SlamDownState v) (SDQ.SlamDownQuery v) g)
+  ⇒ SDQ.SlamDownQuery v
+  ~> H.ComponentDSL (SDS.SlamDownState v) (SDQ.SlamDownQuery v) g
 evalSlamDownQuery e =
   case e of
     SDQ.TextBoxChanged key tb next → do
@@ -98,8 +101,8 @@ evalSlamDownQuery e =
         update (M.Just cb @ (SD.CheckBoxes (Identity sel) (Identity vals))) =
           SD.CheckBoxes (pure $ sel') (pure vals)
           where
-            sel' = Set.toList $ Set.intersection (Set.fromList vals) $ updateSel $ Set.fromList sel
-        update _ = SD.CheckBoxes (pure $ Set.toList $ updateSel Set.empty) (pure $ L.singleton val)
+            sel' = L.fromFoldable $ Set.intersection (Set.fromFoldable vals) $ updateSel $ Set.fromFoldable sel
+        update _ = SD.CheckBoxes (pure $ L.fromFoldable $ updateSel Set.empty) (pure $ L.singleton val)
 
       H.modify \state →
         SDS.modifyFormState
@@ -116,7 +119,7 @@ evalSlamDownQuery e =
       H.modify \(SDS.SlamDownState { document }) →
         let
           desc = SDS.formDescFromDocument document
-          keysToPrune = L.filter (\newKey → not (newKey `SM.member` desc)) (L.toList (SM.keys values))
+          keysToPrune = L.filter (\newKey → not (newKey `SM.member` desc)) (L.fromFoldable (SM.keys values))
           prunedValues = F.foldr SM.delete values keysToPrune
         in
           SDS.SlamDownState
@@ -149,7 +152,7 @@ renderSlamDown config (SDS.SlamDownState state) =
       HH.div_
         <<< Fresh.runFresh config.formName
         <<< traverse renderBlock
-          $ L.fromList bs
+          $ A.fromFoldable bs
 
   where
     defaultFormState ∷ SDS.SlamDownFormState v
@@ -175,14 +178,14 @@ renderSlamDown config (SDS.SlamDownState state) =
         SD.Space → pure $ HH.text " "
         SD.SoftBreak → pure $ HH.text "\n"
         SD.LineBreak → pure $ HH.br_
-        SD.Emph is → HH.em_ <$> traverse renderInline (L.fromList is)
-        SD.Strong is → HH.strong_ <$> traverse renderInline (L.fromList is)
+        SD.Emph is → HH.em_ <$> traverse renderInline (A.fromFoldable is)
+        SD.Strong is → HH.strong_ <$> traverse renderInline (A.fromFoldable is)
         SD.Code _ c → pure $ HH.code_ [ HH.text c ]
         SD.Link body tgt → do
           let
             href (SD.InlineLink url) = url
-            href (SD.ReferenceLink tgt') = M.maybe "" ("#" ++ _) tgt'
-          HH.a [ HP.href $ href tgt ] <$> traverse renderInline (L.fromList body)
+            href (SD.ReferenceLink tgt') = M.maybe "" ("#" <> _) tgt'
+          HH.a [ HP.href $ href tgt ] <$> traverse renderInline (A.fromFoldable body)
         SD.Image body url →
           pure $ HH.img
             [ HP.src url
@@ -213,7 +216,7 @@ renderSlamDown config (SDS.SlamDownState state) =
             [ HP.class_ (HH.className "slamdown-field") ]
             [ HH.label
               (if requiresId then [ HP.for ident ] else [])
-              [ HH.text (label ++ requiredLabel) ]
+              [ HH.text (label <> requiredLabel) ]
             , el
             ]
 
@@ -235,18 +238,18 @@ renderSlamDown config (SDS.SlamDownState state) =
     renderBlock b =
       case b of
         SD.Paragraph is →
-          HH.p_ <$> traverse renderInline (L.fromList is)
+          HH.p_ <$> traverse renderInline (A.fromFoldable is)
         SD.Header lvl is →
-          h_ lvl <$> traverse renderInline (L.fromList is)
+          h_ lvl <$> traverse renderInline (A.fromFoldable is)
         SD.Blockquote bs →
-          HH.blockquote_ <$> traverse renderBlock (L.fromList bs)
+          HH.blockquote_ <$> traverse renderBlock (A.fromFoldable bs)
         SD.Lst lt bss → do
           let
             item ∷ FreshRenderer p v (L.List (SD.Block v))
-            item bs = HH.li_ <$> traverse renderBlock (L.fromList bs)
-          el_ lt <$> traverse item (L.fromList bss)
+            item bs = HH.li_ <$> traverse renderBlock (A.fromFoldable bs)
+          el_ lt <$> traverse item (A.fromFoldable bss)
         SD.CodeBlock _ ss →
-          pure $ HH.pre_ [ HH.code_ [ HH.text (S.joinWith "\n" $ L.fromList ss) ] ]
+          pure $ HH.pre_ [ HH.code_ [ HH.text (S.joinWith "\n" $ A.fromFoldable ss) ] ]
         SD.LinkReference l url →
           pure $ HH.p_
             [ HH.text (l <> ": ")
@@ -258,7 +261,7 @@ renderSlamDown config (SDS.SlamDownState state) =
     -- | Make sure that the default value of a form field is valid, and if it is not, strip it out.
     ensureValidField ∷ SD.FormField v → SD.FormField v
     ensureValidField field =
-      V.runV
+      V.unV
         (const $ stripDefaultValue field)
         id
         (SDPI.validateFormField field)
@@ -326,7 +329,7 @@ renderDropDown id label ls sel =
     , HP.name label
     , HE.onSelectedIndexChange (HE.input (SDQ.DropDownChanged label <<< L.index ls))
     ]
-    $ L.fromList $ M.maybe option option' sel <$> ls
+    $ A.fromFoldable $ M.maybe option option' sel <$> ls
   where
     option ∷ v → H.HTML p (SDQ.SlamDownQuery v)
     option value =
@@ -353,15 +356,15 @@ renderFormElement config st id label field =
     SD.RadioButtons (Identity sel) (Identity ls) → do
       let
         renderRadioButton' val = renderRadioButton label val $ sel == val
-        options = L.fromList $ if sel `F.elem` ls then ls else L.Cons sel ls
+        options = A.fromFoldable $ if sel `F.elem` ls then ls else L.Cons sel ls
       radios ← traverse renderRadioButton' options
       pure $ HH.ul [ HP.class_ (HH.className "slamdown-radios") ] radios
     SD.CheckBoxes (Identity sel) (Identity ls) → do
       let
-        sel' = Set.fromList sel
+        sel' = Set.fromFoldable sel
         renderCheckBox' val = renderCheckBox label val (Set.member val sel')
       checkBoxes ← traverse renderCheckBox' ls
-      pure $ HH.ul [ HP.class_ (HH.className "slamdown-checkboxes") ] $ L.fromList checkBoxes
+      pure $ HH.ul [ HP.class_ (HH.className "slamdown-checkboxes") ] $ A.fromFoldable checkBoxes
     SD.DropDown msel (Identity ls) →
       pure $
         case msel of
@@ -380,7 +383,9 @@ renderFormElement config st id label field =
         , HP.id_ id
         , HP.name label
         , HE.onValueInput (HE.input (SDQ.TextBoxChanged label <<< parseInput))
-        ] <> M.maybe [] (\x → [HP.value x]) renderedValue
+        ]
+        <> typeSettings
+        <> M.maybe [] (\x → [HP.value x]) renderedValue
       where
         renderedValue =
           SDPR.prettyPrintTextBoxValue <$>
@@ -395,9 +400,22 @@ renderFormElement config st id label field =
             E.Right tb' → SD.transTextBox (runIdentity >>> pure) tb'
             E.Left err → SD.transTextBox (\_ → M.Nothing) tb
 
+        -- type signature required due to https://github.com/purescript/purescript/issues/2252
+        typeSettings :: forall r i. Array (HP.IProp r i)
+        typeSettings = case compatibleInputType, tb of
+          HP.InputTime, SD.Time SD.Seconds _ → [secondsStep]
+          HP.InputDatetimeLocal, SD.DateTime SD.Seconds _ → [secondsStep]
+          _, _ → []
+
         compatibleInputType =
           SDIT.inputTypeToHalogenInputType $
             SDIT.availableInputType config.browserFeatures tb
+
+secondsStep ∷ forall r i. HP.IProp r i
+secondsStep = refine $ HC.Attr M.Nothing (HC.attrName "step") "1"
+  where
+  refine :: HC.Prop i -> HP.IProp r i
+  refine = unsafeCoerce
 
 -- | Bundles up the SlamDown renderer and state machine into a Halogen component.
 slamDownComponent

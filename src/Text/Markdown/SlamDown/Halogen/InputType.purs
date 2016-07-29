@@ -2,7 +2,9 @@ module Text.Markdown.SlamDown.Halogen.InputType where
 
 import Data.BrowserFeatures (BrowserFeatures)
 import Data.BrowserFeatures.InputType as IT
+
 import Halogen.HTML.Properties.Indexed as HP
+
 import Text.Markdown.SlamDown as SD
 
 availableInputType
@@ -26,8 +28,8 @@ textBoxToInputType ty =
   case ty of
     SD.PlainText _ → IT.Text
     SD.Date _ → IT.Date
-    SD.Time _ → IT.Time
-    SD.DateTime _ → IT.DateTimeLocal
+    SD.Time _ _ → IT.Time
+    SD.DateTime _ _ → IT.DateTimeLocal
     SD.Numeric _ → IT.Number
 
 inputTypeToHalogenInputType
@@ -48,4 +50,3 @@ inputTypeToHalogenInputType it =
     IT.Search → HP.InputSearch
     IT.Range → HP.InputRange
     IT.Text → HP.InputText
-

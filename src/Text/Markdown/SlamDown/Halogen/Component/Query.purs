@@ -5,10 +5,11 @@ module Text.Markdown.SlamDown.Halogen.Component.Query
 import Prelude
 
 import Data.Maybe as M
-import Data.NaturalTransformation (Natural)
 import Data.StrMap as SM
-import Test.StrongCheck as SC
+
+import Test.StrongCheck.Arbitrary as SCA
 import Test.StrongCheck.Gen as Gen
+
 import Text.Markdown.SlamDown as SD
 import Text.Markdown.SlamDown.Halogen.Component.State as SDS
 
@@ -34,26 +35,25 @@ instance functorSlamDownQuery ∷ Functor (SlamDownQuery v) where
 
 newtype ArbStrMap a = ArbStrMap (SM.StrMap a)
 
-getArbStrMap ∷ Natural ArbStrMap SM.StrMap
+getArbStrMap ∷ ArbStrMap ~> SM.StrMap
 getArbStrMap (ArbStrMap a) = a
 
-instance arbitraryArbStrMap ∷ (SC.Arbitrary a) ⇒ SC.Arbitrary (ArbStrMap a) where
+instance arbitraryArbStrMap ∷ (SCA.Arbitrary a) ⇒ SCA.Arbitrary (ArbStrMap a) where
   arbitrary =
-    ArbStrMap <<< SM.fromList <$> SC.arbitrary
+    ArbStrMap <<< SM.fromList <$> SCA.arbitrary
 
-instance coarbitraryArbStrMap ∷ (SC.CoArbitrary a) ⇒ SC.CoArbitrary (ArbStrMap a) where
+instance coarbitraryArbStrMap ∷ (SCA.Coarbitrary a) ⇒ SCA.Coarbitrary (ArbStrMap a) where
   coarbitrary (ArbStrMap a) =
-    SC.coarbitrary (SM.toList a)
+    SCA.coarbitrary (SM.toList a)
 
-instance arbitrarySlamDownQuery ∷ (SC.Arbitrary v, SC.CoArbitrary v, SC.Arbitrary a, Eq v) ⇒ SC.Arbitrary (SlamDownQuery v a) where
+instance arbitrarySlamDownQuery ∷ (SCA.Arbitrary v, SCA.Coarbitrary v, SCA.Arbitrary a, Eq v) ⇒ SCA.Arbitrary (SlamDownQuery v a) where
   arbitrary = do
     i ← Gen.chooseInt 0.0 6.0
     case i of
-      0 -> TextBoxChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
-      1 -> CheckBoxChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
-      2 -> RadioButtonChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
-      3 -> DropDownChanged <$> SC.arbitrary <*> SC.arbitrary <*> SC.arbitrary
-      4 -> SetDocument <$> SC.arbitrary <*> SC.arbitrary
-      5 -> GetFormState <<< (_ <<< ArbStrMap) <$> SC.arbitrary
-      _ -> PopulateForm <<< getArbStrMap <$> SC.arbitrary <*> SC.arbitrary
-
+      0 -> TextBoxChanged <$> SCA.arbitrary <*> SCA.arbitrary <*> SCA.arbitrary
+      1 -> CheckBoxChanged <$> SCA.arbitrary <*> SCA.arbitrary <*> SCA.arbitrary <*> SCA.arbitrary
+      2 -> RadioButtonChanged <$> SCA.arbitrary <*> SCA.arbitrary <*> SCA.arbitrary
+      3 -> DropDownChanged <$> SCA.arbitrary <*> SCA.arbitrary <*> SCA.arbitrary
+      4 -> SetDocument <$> SCA.arbitrary <*> SCA.arbitrary
+      5 -> GetFormState <<< (_ <<< ArbStrMap) <$> SCA.arbitrary
+      _ -> PopulateForm <<< getArbStrMap <$> SCA.arbitrary <*> SCA.arbitrary

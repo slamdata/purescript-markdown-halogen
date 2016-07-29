@@ -8,7 +8,6 @@ module Text.Markdown.SlamDown.Halogen.Fresh
 import Prelude
 
 import Data.Identity (Identity, runIdentity)
-import Data.NaturalTransformation (Natural)
 import Control.Monad.Reader.Trans (ReaderT, runReaderT, ask)
 import Control.Monad.State.Trans (StateT, evalStateT)
 import Control.Monad.State.Class (get, modify)
@@ -30,7 +29,8 @@ runFreshT
   ∷ ∀ m
   . (Monad m)
   ⇒ String
-  → Natural (FreshT m) m
+  → FreshT m
+  ~> m
 runFreshT prefix m =
   evalStateT
     (runReaderT m prefix)
