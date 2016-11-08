@@ -4,8 +4,10 @@ module Text.Markdown.SlamDown.Halogen.Component.Query
 
 import Prelude
 
+import Data.List as L
 import Data.Maybe as M
 import Data.StrMap as SM
+import Data.Tuple as T
 
 import Test.StrongCheck.Arbitrary as SCA
 import Test.StrongCheck.Gen as Gen
@@ -40,7 +42,7 @@ getArbStrMap (ArbStrMap a) = a
 
 instance arbitraryArbStrMap ∷ (SCA.Arbitrary a) ⇒ SCA.Arbitrary (ArbStrMap a) where
   arbitrary =
-    ArbStrMap <<< SM.fromList <$> SCA.arbitrary
+    ArbStrMap <<< SM.fromFoldable <$> SCA.arbitrary :: Gen.Gen (L.List (T.Tuple String a))
 
 instance coarbitraryArbStrMap ∷ (SCA.Coarbitrary a) ⇒ SCA.Coarbitrary (ArbStrMap a) where
   coarbitrary (ArbStrMap a) =
@@ -48,7 +50,7 @@ instance coarbitraryArbStrMap ∷ (SCA.Coarbitrary a) ⇒ SCA.Coarbitrary (ArbSt
 
 instance arbitrarySlamDownQuery ∷ (SCA.Arbitrary v, SCA.Coarbitrary v, SCA.Arbitrary a, Eq v) ⇒ SCA.Arbitrary (SlamDownQuery v a) where
   arbitrary = do
-    i ← Gen.chooseInt 0.0 6.0
+    i ← Gen.chooseInt 0 6
     case i of
       0 -> TextBoxChanged <$> SCA.arbitrary <*> SCA.arbitrary <*> SCA.arbitrary
       1 -> CheckBoxChanged <$> SCA.arbitrary <*> SCA.arbitrary <*> SCA.arbitrary <*> SCA.arbitrary

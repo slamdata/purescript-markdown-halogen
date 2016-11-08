@@ -16,12 +16,12 @@
     "package.json"
   ],
   "dependencies": {
-    "purescript-browserfeatures": "^2.0.0",
-    "purescript-halogen": "^0.11.0",
-    "purescript-markdown": "^7.0.0",
-    "purescript-prelude": "^1.0.1",
-    "purescript-sets": "^1.0.0",
-    "purescript-strongcheck": "^1.1.1",
-    "purescript-validation": "^1.0.0"
+    "purescript-browserfeatures": "^3.0.0",
+    "purescript-halogen": "^0.12.0",
+    "purescript-markdown": "^8.0.0",
+    "purescript-prelude": "^2.1.0",
+    "purescript-sets": "^2.0.0",
+    "purescript-strongcheck": "^2.0.0",
+    "purescript-validation": "^2.0.0"
   }
 }

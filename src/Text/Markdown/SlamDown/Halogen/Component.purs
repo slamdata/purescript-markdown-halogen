@@ -19,10 +19,11 @@ import Data.Array as A
 import Data.BrowserFeatures (BrowserFeatures)
 import Data.Either as E
 import Data.Foldable as F
-import Data.Functor.Compose (Compose(..), decompose)
-import Data.Identity (Identity(..), runIdentity)
+import Data.Functor.Compose (Compose(..))
+import Data.Identity (Identity(..))
 import Data.List as L
 import Data.Maybe as M
+import Data.Newtype (unwrap)
 import Data.Set as Set
 import Data.String as S
 import Data.StrMap as SM
@@ -195,7 +196,7 @@ renderSlamDown config (SDS.SlamDownState state) =
           ident ← Fresh.fresh
           let
             unquote = SD.traverseFormField (SD.getLiteral >>> map pure)
-            quote = SD.transFormField (runIdentity >>> SD.Literal)
+            quote = SD.transFormField (unwrap >>> SD.Literal)
             field =
               unquote <<< ensureValidField <<< M.maybe def quote $
                 SM.lookup label state.formState <|> SM.lookup label defaultFormState
@@ -389,7 +390,7 @@ renderFormElement config st id label field =
       where
         renderedValue =
           SDPR.prettyPrintTextBoxValue <$>
-            SD.traverseTextBox decompose tb
+            SD.traverseTextBox unwrap tb
 
         parser ∷ P.Parser String (SD.TextBox Identity)
         parser = SDPI.parseTextBox (\_ → true) (map pure) tb
@@ -397,7 +398,7 @@ renderFormElement config st id label field =
         parseInput ∷ String → SD.TextBox M.Maybe
         parseInput str =
           case P.runParser str parser of
-            E.Right tb' → SD.transTextBox (runIdentity >>> pure) tb'
+            E.Right tb' → SD.transTextBox (unwrap >>> pure) tb'
             E.Left err → SD.transTextBox (\_ → M.Nothing) tb
 
         -- type signature required due to https://github.com/purescript/purescript/issues/2252
