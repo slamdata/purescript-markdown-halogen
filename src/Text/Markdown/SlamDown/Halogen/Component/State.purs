@@ -32,6 +32,7 @@ import Data.StrMap as SM
 import Data.Tuple (Tuple(..))
 import Data.Validation.Semigroup as V
 
+import Test.StrongCheck.Gen as Gen
 import Test.StrongCheck.Arbitrary as SCA
 
 import Text.Markdown.SlamDown as SD
@@ -77,7 +78,7 @@ instance showSlamDownState ∷ (Show a) ⇒ Show (SlamDownState a) where
 instance arbitrarySlamDownState ∷ (SCA.Arbitrary a, Ord a) ⇒ SCA.Arbitrary (SlamDownState a) where
   arbitrary = do
     document ← SCA.arbitrary
-    formState ← SM.fromList <$> SCA.arbitrary
+    formState ← SM.fromFoldable <$> SCA.arbitrary :: Gen.Gen (L.List (Tuple String (FormFieldValue a)))
     pure $ SlamDownState
       { document : document
       , formState : formState
@@ -96,7 +97,7 @@ getFormFieldValue key state =
 
 formStateFromDocument ∷ SD.SlamDownP ~> SlamDownFormState
 formStateFromDocument =
-  SM.fromList
+  SM.fromFoldable
     <<< SDT.everything (const mempty) phi
   where
     phi
@@ -136,7 +137,7 @@ makeSlamDownState doc =
 
 formDescFromDocument ∷ SD.SlamDownP ~> SlamDownFormDesc
 formDescFromDocument =
-  SM.fromList
+  SM.fromFoldable
     <<< SDT.everything (const mempty) phi
   where
     phi ∷ ∀ v. SD.Inline v → L.List (Tuple String (SD.FormField v))

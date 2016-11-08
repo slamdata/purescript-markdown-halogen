@@ -7,17 +7,19 @@ module Text.Markdown.SlamDown.Halogen.Fresh
 
 import Prelude
 
-import Data.Identity (Identity, runIdentity)
 import Control.Monad.Reader.Trans (ReaderT, runReaderT, ask)
-import Control.Monad.State.Trans (StateT, evalStateT)
 import Control.Monad.State.Class (get, modify)
+import Control.Monad.State.Trans (StateT, evalStateT)
+
+import Data.Identity (Identity)
+import Data.Newtype (unwrap)
 
 type FreshT m = ReaderT String (StateT Int m)
 type Fresh = FreshT Identity
 
 fresh
   ∷ ∀ m
-  . (Monad m)
+  . Monad m
   ⇒ FreshT m String
 fresh = do
   prefix ← ask
@@ -27,7 +29,7 @@ fresh = do
 
 runFreshT
   ∷ ∀ m
-  . (Monad m)
+  . Monad m
   ⇒ String
   → FreshT m
   ~> m
@@ -42,5 +44,5 @@ runFresh
   → Fresh a
   → a
 runFresh prefix =
-  runIdentity
+  unwrap
     <<< runFreshT prefix
