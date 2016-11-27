@@ -268,11 +268,11 @@ renderSlamDown config (SDS.SlamDownState state) =
         (SDPI.validateFormField field)
       where
         stripDefaultValue ∷ SD.FormField v → SD.FormField v
-        stripDefaultValue field =
-          case field of
+        stripDefaultValue =
+          case _ of
              SD.TextBox tb → SD.TextBox $ SD.transTextBox (\_ → Compose M.Nothing) tb
              SD.DropDown _ ls → SD.DropDown M.Nothing ls
-             _ → field
+             field' → field'
 
 renderRadioButton
   ∷ ∀ p v
@@ -338,9 +338,9 @@ renderDropDown id label ls sel =
       in HH.option [ HP.value renderedValue ] [ HH.text renderedValue ]
 
     option' ∷ v → v → H.HTML p (SDQ.SlamDownQuery v)
-    option' sel value =
+    option' sel' value =
       let renderedValue = SD.renderValue value
-      in HH.option [ HP.selected (value == sel), HP.value renderedValue ] [ HH.text renderedValue ]
+      in HH.option [ HP.selected (value == sel'), HP.value renderedValue ] [ HH.text renderedValue ]
 
 renderFormElement
   ∷ ∀ p v
