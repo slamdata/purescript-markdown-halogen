@@ -3,7 +3,7 @@ module Text.Markdown.SlamDown.Halogen.InputType where
 import Data.BrowserFeatures (BrowserFeatures)
 import Data.BrowserFeatures.InputType as IT
 
-import Halogen.HTML.Properties.Indexed as HP
+import Halogen.HTML.Properties as HP
 
 import Text.Markdown.SlamDown as SD
 

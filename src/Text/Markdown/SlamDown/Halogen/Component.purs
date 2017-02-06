@@ -2,7 +2,7 @@
 module Text.Markdown.SlamDown.Halogen.Component
   ( SlamDownConfig(..)
   , defaultBrowserFeatures
-
+  , SlamDownMessage(..)
   , slamDownComponent
   , renderSlamDown
   , evalSlamDownQuery
@@ -32,9 +32,9 @@ import Data.Validation.Semigroup as V
 
 import Halogen as H
 import Halogen.HTML.Core as HC
-import Halogen.HTML.Events.Indexed as HE
-import Halogen.HTML.Indexed as HH
-import Halogen.HTML.Properties.Indexed as HP
+import Halogen.HTML.Events as HE
+import Halogen.HTML as HH
+import Halogen.HTML.Properties as HP
 
 import Text.Markdown.SlamDown as SD
 import Text.Markdown.SlamDown.Halogen.Component.Query as SDQ
@@ -47,6 +47,12 @@ import Text.Parsing.Parser as P
 
 import Unsafe.Coerce (unsafeCoerce)
 
+data SlamDownMessage v
+  = TextBoxChanged String (SD.TextBox M.Maybe)
+  | CheckBoxChanged String v Boolean
+  | RadioButtonChanged String v
+  | DropDownChanged String (M.Maybe v)
+
 -- | By default, no features are enabled.
 defaultBrowserFeatures ∷ BrowserFeatures
 defaultBrowserFeatures =
@@ -54,18 +60,19 @@ defaultBrowserFeatures =
   }
 
 evalSlamDownQuery
-  ∷ ∀ g v
+  ∷ ∀ m v
   . (SD.Value v)
   ⇒ SDQ.SlamDownQuery v
-  ~> H.ComponentDSL (SDS.SlamDownState v) (SDQ.SlamDownQuery v) g
+  ~> H.ComponentDSL (SDS.SlamDownState v) (SDQ.SlamDownQuery v) (SlamDownMessage v) m
 evalSlamDownQuery e =
   case e of
-    SDQ.TextBoxChanged key tb next → do
+    SDQ.ChangeTextBox key tb next → do
       H.modify <<< SDS.modifyFormState $
         SM.insert key (SD.TextBox $ SD.transTextBox (Compose <<< map pure) tb)
+      H.raise $ TextBoxChanged key tb
       pure next
 
-    SDQ.RadioButtonChanged key val next → do
+    SDQ.ChangeRadioButton key val next → do
       H.modify \state →
         flip SDS.modifyFormState state <<< SM.insert key $
           case SDS.getFormFieldValue key state of
@@ -74,9 +81,10 @@ evalSlamDownQuery e =
                 M.Just _ → SD.RadioButtons (pure val) (pure vals)
                 M.Nothing → rb
             _ → SD.RadioButtons (pure val) (pure (L.singleton val))
+      H.raise $ RadioButtonChanged key val
       pure next
 
-    SDQ.DropDownChanged key mval next → do
+    SDQ.ChangeDropDown key mval next → do
       H.modify \state →
         flip SDS.modifyFormState state <<< SM.insert key $
           case SDS.getFormFieldValue key state of
@@ -88,9 +96,10 @@ evalSlamDownQuery e =
                   else rb
                 M.Nothing → SD.DropDown M.Nothing (pure vals)
             _ → SD.DropDown (pure <$> mval) (pure $ M.maybe L.Nil L.singleton mval)
+      H.raise $ DropDownChanged key mval
       pure next
 
-    SDQ.CheckBoxChanged key val checked next → do
+    SDQ.ChangeCheckBox key val checked next → do
       let
         updateSel ∷ Set.Set v → Set.Set v
         updateSel =
@@ -109,6 +118,7 @@ evalSlamDownQuery e =
         SDS.modifyFormState
           (SM.insert key <<< update $ SDS.getFormFieldValue key state)
           state
+      H.raise $ CheckBoxChanged key val checked
       pure next
 
     SDQ.GetFormState k → do
@@ -214,7 +224,7 @@ renderSlamDown config (SDS.SlamDownState state) =
                 _ → true
 
           pure $ HH.span
-            [ HP.class_ (HH.className "slamdown-field") ]
+            [ HP.class_ (HH.ClassName "slamdown-field") ]
             [ HH.label
               (if requiresId then [ HP.for ident ] else [])
               [ HH.text (label <> requiredLabel) ]
@@ -254,7 +264,7 @@ renderSlamDown config (SDS.SlamDownState state) =
         SD.LinkReference l url →
           pure $ HH.p_
             [ HH.text (l <> ": ")
-            , HH.a [ HP.name l, HP.id_ l, HP.href url ] [ HH.text url ]
+            , HH.a [ HP.id_ l, HP.href url ] [ HH.text url ]
             ]
         SD.Rule →
           pure HH.hr_
@@ -286,11 +296,11 @@ renderRadioButton label value checked = do
   pure $ HH.li_
     [ HH.input
         [ HP.checked checked
-        , HP.inputType HP.InputRadio
+        , HP.type_ HP.InputRadio
         , HP.id_ id
         , HP.name label
         , HP.value renderedValue
-        , HE.onValueChange (HE.input_ (SDQ.RadioButtonChanged label value))
+        , HE.onValueChange (HE.input_ (SDQ.ChangeRadioButton label value))
         ]
     , HH.label [ HP.for id ] [ HH.text renderedValue ]
     ]
@@ -307,11 +317,11 @@ renderCheckBox label value checked = do
   pure $ HH.li_
     [ HH.input
         [ HP.checked checked
-        , HP.inputType HP.InputCheckbox
+        , HP.type_ HP.InputCheckbox
         , HP.id_ id
         , HP.name label
         , HP.value renderedValue
-        , HE.onChecked (HE.input (SDQ.CheckBoxChanged label value))
+        , HE.onChecked (HE.input (SDQ.ChangeCheckBox label value))
         ]
     , HH.label [ HP.for id ] [ HH.text renderedValue ]
     ]
@@ -328,7 +338,7 @@ renderDropDown id label ls sel =
   HH.select
     [ HP.id_ id
     , HP.name label
-    , HE.onSelectedIndexChange (HE.input (SDQ.DropDownChanged label <<< L.index ls))
+    , HE.onSelectedIndexChange (HE.input (SDQ.ChangeDropDown label <<< L.index ls))
     ]
     $ A.fromFoldable $ M.maybe option option' sel <$> ls
   where
@@ -359,13 +369,13 @@ renderFormElement config st id label field =
         renderRadioButton' val = renderRadioButton label val $ sel == val
         options = A.fromFoldable $ if sel `F.elem` ls then ls else L.Cons sel ls
       radios ← traverse renderRadioButton' options
-      pure $ HH.ul [ HP.class_ (HH.className "slamdown-radios") ] radios
+      pure $ HH.ul [ HP.class_ (HH.ClassName "slamdown-radios") ] radios
     SD.CheckBoxes (Identity sel) (Identity ls) → do
       let
         sel' = Set.fromFoldable sel
         renderCheckBox' val = renderCheckBox label val (Set.member val sel')
       checkBoxes ← traverse renderCheckBox' ls
-      pure $ HH.ul [ HP.class_ (HH.className "slamdown-checkboxes") ] $ A.fromFoldable checkBoxes
+      pure $ HH.ul [ HP.class_ (HH.ClassName "slamdown-checkboxes") ] $ A.fromFoldable checkBoxes
     SD.DropDown msel (Identity ls) →
       pure $
         case msel of
@@ -380,10 +390,10 @@ renderFormElement config st id label field =
       → H.HTML p (SDQ.SlamDownQuery v)
     renderTextInput tb =
       HH.input $
-        [ HP.inputType compatibleInputType
+        [ HP.type_ compatibleInputType
         , HP.id_ id
         , HP.name label
-        , HE.onValueInput (HE.input (SDQ.TextBoxChanged label <<< parseInput))
+        , HE.onValueInput (HE.input (SDQ.ChangeTextBox label <<< parseInput))
         ]
         <> typeSettings
         <> M.maybe [] (\x → [HP.value x]) renderedValue
@@ -413,19 +423,21 @@ renderFormElement config st id label field =
             SDIT.availableInputType config.browserFeatures tb
 
 secondsStep ∷ forall r i. HP.IProp r i
-secondsStep = refine $ HC.Attr M.Nothing (HC.attrName "step") "1"
+secondsStep = refine $ HC.attr (HC.AttrName "step") "1"
   where
   refine :: HC.Prop i -> HP.IProp r i
   refine = unsafeCoerce
 
 -- | Bundles up the SlamDown renderer and state machine into a Halogen component.
 slamDownComponent
-  ∷ ∀ g v
+  ∷ ∀ m v
   . (SD.Value v)
   ⇒ SlamDownConfig
-  → H.Component (SDS.SlamDownState v) (SDQ.SlamDownQuery v) g
+  → H.Component HH.HTML (SDQ.SlamDownQuery v) Unit (SlamDownMessage v) m
 slamDownComponent config =
   H.component
     { render: renderSlamDown config
     , eval: evalSlamDownQuery
+    , initialState: const SDS.emptySlamDownState
+    , receiver: const M.Nothing
     }
