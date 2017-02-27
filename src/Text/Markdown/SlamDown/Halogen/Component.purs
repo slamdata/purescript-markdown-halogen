@@ -150,6 +150,19 @@ type SlamDownConfig =
 
 type FreshRenderer p v a = a → Fresh.Fresh (H.HTML p (SDQ.SlamDownQuery v))
 
+type FormFieldDef a =
+  { label ∷ String
+  , required ∷ Boolean
+  , field ∷ SD.FormField a
+  }
+
+type FormFieldBaked p v =
+  { label ∷ String
+  , required ∷ Boolean
+  , field ∷ H.HTML p (SDQ.SlamDownQuery v)
+  , ident ∷ M.Maybe String
+  }
+
 -- | Render a `SlamDown` document into an HTML form.
 renderSlamDown
   ∷ ∀ v
@@ -161,9 +174,8 @@ renderSlamDown config (SDS.SlamDownState state) =
   case state.document of
     SD.SlamDown bs →
       HH.div_
-        <<< Fresh.runFresh config.formName
-        <<< traverse renderBlock
-          $ A.fromFoldable bs
+        $ Fresh.runFresh config.formName
+        $ renderBlocks bs
 
   where
     defaultFormState ∷ SDS.SlamDownFormState v
@@ -202,34 +214,62 @@ renderSlamDown config (SDS.SlamDownState state) =
             [ HP.src url
             , HP.alt $ F.foldMap stripInline body
             ]
-        SD.FormField label req def → do
-          ident ← Fresh.fresh
-          let
-            unquote = SD.traverseFormField (SD.getLiteral >>> map pure)
-            quote = SD.transFormField (unwrap >>> SD.Literal)
-            field =
-              unquote <<< ensureValidField <<< M.maybe def quote $
-                SM.lookup label state.formState <|> SM.lookup label defaultFormState
-          el ←
-            case field of
-              M.Nothing → pure $ HH.text "Unsupported form element"
-              M.Just fv → renderFormElement config state ident label fv
+        SD.FormField label required field →
+          renderInlineFormField <$> bakeFormField { label, required, field }
 
-          let
-            requiredLabel = if req then "*" else ""
-            requiresId =
-              case field of
-                M.Just (SD.CheckBoxes _ _) → false
-                M.Just (SD.RadioButtons _ _) → false
-                _ → true
+    bakeFormField ∷ ∀ p. FormFieldDef v → Fresh.Fresh (FormFieldBaked p v)
+    bakeFormField { label, required, field } = do
+      ident ← Fresh.fresh
+      let
+        unquote = SD.traverseFormField (SD.getLiteral >>> map pure)
+        quote = SD.transFormField (unwrap >>> SD.Literal)
+        field' =
+          unquote <<< ensureValidField <<< M.maybe field quote $
+            SM.lookup label state.formState <|> SM.lookup label defaultFormState
+      el ←
+        case field' of
+          M.Nothing → pure $ HH.text "Unsupported form element"
+          M.Just fv → renderFormElement config state ident label fv
 
-          pure $ HH.span
-            [ HP.class_ (HH.ClassName "slamdown-field") ]
+      let
+        requiresId =
+          case field' of
+            M.Just (SD.CheckBoxes _ _) → false
+            M.Just (SD.RadioButtons _ _) → false
+            _ → true
+      pure
+        { label
+        , required
+        , field: el
+        , ident: if requiresId then M.Just ident else M.Nothing
+        }
+
+    renderInlineFormField ∷ ∀ p. FormFieldBaked p v → H.HTML p (SDQ.SlamDownQuery v)
+    renderInlineFormField { field, label, required, ident } =
+      HH.span
+        [ HP.class_ (HH.ClassName "slamdown-field") ]
+        [ HH.label
+            (M.maybe [] (pure <<< HP.for) ident)
+            [ HH.text (label <> if required then "*" else "") ]
+        , field
+        ]
+
+    renderFormSetFormField ∷ ∀ p. FormFieldBaked p v → H.HTML p (SDQ.SlamDownQuery v)
+    renderFormSetFormField { field, label, required, ident } =
+      HH.tr_
+        [ HH.th_
             [ HH.label
-              (if requiresId then [ HP.for ident ] else [])
-              [ HH.text (label <> requiredLabel) ]
-            , el
+                (M.maybe [] (pure <<< HP.for) ident)
+                [ HH.text (label <> if required then "*" else "") ]
             ]
+        , HH.td_
+            [ field ]
+        ]
+
+    renderFormSet ∷ ∀ p. FreshRenderer p v (L.List (FormFieldDef v))
+    renderFormSet fs =
+      HH.table [ HP.class_ (HH.ClassName "slamdown-formset") ]
+        <$> traverse (map renderFormSetFormField <<< bakeFormField) (A.fromFoldable fs)
 
     stripInline ∷ SD.Inline v → String
     stripInline i =
@@ -253,11 +293,11 @@ renderSlamDown config (SDS.SlamDownState state) =
         SD.Header lvl is →
           h_ lvl <$> traverse renderInline (A.fromFoldable is)
         SD.Blockquote bs →
-          HH.blockquote_ <$> traverse renderBlock (A.fromFoldable bs)
+          HH.blockquote_ <$> renderBlocks bs
         SD.Lst lt bss → do
           let
             item ∷ FreshRenderer p v (L.List (SD.Block v))
-            item bs = HH.li_ <$> traverse renderBlock (A.fromFoldable bs)
+            item bs = HH.li_ <$> renderBlocks bs
           el_ lt <$> traverse item (A.fromFoldable bss)
         SD.CodeBlock _ ss →
           pure $ HH.pre_ [ HH.code_ [ HH.text (S.joinWith "\n" $ A.fromFoldable ss) ] ]
@@ -268,6 +308,27 @@ renderSlamDown config (SDS.SlamDownState state) =
             ]
         SD.Rule →
           pure HH.hr_
+
+    renderBlocks ∷ ∀ p. L.List (SD.Block v) → Fresh.Fresh (Array (H.HTML p (SDQ.SlamDownQuery v)))
+    renderBlocks = go [] L.Nil
+      where
+      go html fs bs =
+        case bs of
+          L.Cons (SD.Paragraph (L.Cons (SD.FormField label required field) L.Nil)) bs' →
+            go html (L.Cons { label, required, field } fs) bs'
+          L.Cons b bs' → do
+            bHtml ← renderBlock b
+            if L.null fs
+              then go (html <> pure bHtml) L.Nil bs'
+              else do
+                fsHtml ← renderFormSet (L.reverse fs)
+                go (html <> pure fsHtml <> pure bHtml) L.Nil bs'
+          L.Nil →
+            if L.null fs
+              then pure html
+              else do
+                fsHtml ← renderFormSet (L.reverse fs)
+                pure (html <> pure fsHtml)
 
     -- | Make sure that the default value of a form field is valid, and if it is not, strip it out.
     ensureValidField ∷ SD.FormField v → SD.FormField v
