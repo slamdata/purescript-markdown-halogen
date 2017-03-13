@@ -17,11 +17,11 @@
   ],
   "dependencies": {
     "purescript-browserfeatures": "^3.0.0",
-    "purescript-halogen": "^1.0.0",
-    "purescript-markdown": "^8.0.0",
-    "purescript-prelude": "^2.1.0",
-    "purescript-sets": "^2.0.0",
-    "purescript-strongcheck": "^2.0.0",
+    "purescript-halogen": "^1.1.0",
+    "purescript-markdown": "^9.0.0",
+    "purescript-prelude": "^2.5.0",
+    "purescript-sets": "^2.0.1",
+    "purescript-strongcheck": "^2.1.0",
     "purescript-validation": "^2.0.0"
   }
 }
