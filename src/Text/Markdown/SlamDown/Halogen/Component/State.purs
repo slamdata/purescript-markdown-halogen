@@ -11,6 +11,7 @@ module Text.Markdown.SlamDown.Halogen.Component.State
   , getFormState
   , modifyFormState
 
+  , syncState
   , replaceDocument
 
   , formDescFromDocument
@@ -144,18 +145,17 @@ formDescFromDocument =
     phi (SD.FormField label _ field) = L.singleton (Tuple label field)
     phi _ = mempty
 
-replaceDocument
+syncState
   ∷ ∀ v
-  . (SD.Value v)
+  . SD.Value v
   ⇒ SD.SlamDownP v
+  → SlamDownFormState v
   → SlamDownState v
-  → SlamDownState v
-replaceDocument doc (SlamDownState state) =
+syncState doc formState =
   SlamDownState
-    { document : doc
-    , formState : prunedFormState state.formState
+    { document: doc
+    , formState: formState'
     }
-
   where
     formDesc ∷ SlamDownFormDesc v
     formDesc = formDescFromDocument doc
@@ -166,27 +166,25 @@ replaceDocument doc (SlamDownState state) =
     -- | Returns the keys that are either not present in the new state, or have had their types changed.
     keysToPrune ∷ SlamDownFormState v → Array String
     keysToPrune =
-      SM.foldMap \(key ∷ String) (oldVal ∷ FormFieldValue v) →
-        case Tuple oldVal (SM.lookup key formDesc) of
-          Tuple (SD.TextBox tb1) (M.Just (SD.TextBox tb2)) →
-            if eraseTextBox tb1 == eraseTextBox tb2
-            then []
-            else [ key ]
-          Tuple (SD.CheckBoxes _ (Id.Identity xs1)) (M.Just (SD.CheckBoxes _ (SD.Literal xs2))) →
-            if xs1 == xs2
-            then []
-            else [ key ]
-          Tuple (SD.DropDown _ (Id.Identity xs1)) (M.Just (SD.DropDown _ (SD.Literal xs2))) →
-            if xs1 == xs2
-            then []
-            else [ key ]
-          Tuple (SD.RadioButtons _ (Id.Identity xs1)) (M.Just (SD.RadioButtons _ (SD.Literal xs2))) →
-            if xs1 == xs2
-            then []
-            else [ key ]
-          Tuple _ M.Nothing →
-            [ key ]
-          _ → []
+      SM.foldMap \key oldVal →
+        case SM.lookup key formDesc of
+          M.Nothing → [ key ]
+          M.Just formVal →
+            case oldVal, formVal of
+              SD.TextBox tb1, SD.TextBox tb2 | eraseTextBox tb1 == eraseTextBox tb2 → []
+              SD.CheckBoxes _ (Id.Identity xs1), SD.CheckBoxes _ (SD.Literal xs2) | xs1 == xs2 → []
+              SD.DropDown _ (Id.Identity xs1), SD.DropDown _ (SD.Literal xs2) | xs1 == xs2 → []
+              SD.RadioButtons _ (Id.Identity xs1), SD.RadioButtons _ (SD.Literal xs2) | xs1 == xs2 → []
+              _, _ → [ key ]
 
-    prunedFormState ∷ SlamDownFormState v → SlamDownFormState v
-    prunedFormState st = F.foldr SM.delete st $ keysToPrune st
+    formState' ∷ SlamDownFormState v
+    formState' = F.foldr SM.delete formState $ keysToPrune formState
+
+replaceDocument
+  ∷ ∀ v
+  . (SD.Value v)
+  ⇒ SD.SlamDownP v
+  → SlamDownState v
+  → SlamDownState v
+replaceDocument doc (SlamDownState state) =
+  syncState doc state.formState

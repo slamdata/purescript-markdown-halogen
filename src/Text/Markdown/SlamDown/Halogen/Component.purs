@@ -128,15 +128,7 @@ evalSlamDownQuery e =
 
     SDQ.PopulateForm values next → do
       H.modify \(SDS.SlamDownState { document }) →
-        let
-          desc = SDS.formDescFromDocument document
-          keysToPrune = L.filter (\newKey → not (newKey `SM.member` desc)) (L.fromFoldable (SM.keys values))
-          prunedValues = F.foldr SM.delete values keysToPrune
-        in
-          SDS.SlamDownState
-            { document
-            , formState: prunedValues
-            }
+        SDS.syncState document values
       pure next
 
     SDQ.SetDocument doc next → do
