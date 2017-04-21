@@ -37,7 +37,7 @@ instance arbitraryArbStrMap ∷ (SCA.Arbitrary a) ⇒ SCA.Arbitrary (ArbStrMap a
 
 instance coarbitraryArbStrMap ∷ (SCA.Coarbitrary a) ⇒ SCA.Coarbitrary (ArbStrMap a) where
   coarbitrary (ArbStrMap a) =
-    SCA.coarbitrary (SM.toList a)
+    SCA.coarbitrary (SM.toUnfoldable a ∷ L.List (T.Tuple String a))
 
 instance arbitrarySlamDownQuery ∷ (SCA.Arbitrary v, SCA.Coarbitrary v, SCA.Arbitrary a, Eq v) ⇒ SCA.Arbitrary (SlamDownQuery v a) where
   arbitrary = do
