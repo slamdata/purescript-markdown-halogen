@@ -16,6 +16,7 @@
     "package.json"
   ],
   "dependencies": {
+    "purescript-halogen-datepicker  ": "git://github.com/safareli/purescript-halogen-datepicker.git#init",
     "purescript-browserfeatures": "^4.0.0",
     "purescript-halogen": "^2.0.1",
     "purescript-markdown": "^11.0.0",
