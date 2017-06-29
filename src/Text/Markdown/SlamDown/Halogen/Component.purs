@@ -14,6 +14,7 @@ module Text.Markdown.SlamDown.Halogen.Component
 import Prelude
 
 import Control.Alt ((<|>))
+import Control.MonadZero (guard)
 import DOM.HTML.Indexed.StepValue (StepValue(..))
 import Data.Array as A
 import Data.BrowserFeatures (BrowserFeatures)
@@ -47,7 +48,6 @@ import Halogen.HTML as HH
 import Halogen.HTML.Core as HC
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Halogen.Query.HalogenM (HalogenM, halt)
 import Partial.Unsafe (unsafePartial)
 import Text.Markdown.SlamDown as SD
 import Text.Markdown.SlamDown.Halogen.Component.Query as SDQ
@@ -147,7 +147,7 @@ evalSlamDownQuery config e =
       state ← H.get
       let newState = SDS.replaceDocument doc state
       H.put newState
-      let formState = newState # \(SDS.SlamDownState s) -> SDS.formStateFromDocument s.document
+      let formState = newState # \(SDS.SlamDownState s) → SDS.formStateFromDocument s.document
       SM.foldM (updatePickers config.browserFeatures) unit formState
       pure next
 
@@ -160,20 +160,22 @@ updatePickers :: ∀ m v a
 updatePickers {inputTypeSupported} _ label = case _ of
   SD.TextBox t → case t of
     SD.DateTime _ (Compose (Just (Identity v))) →
-      unless (inputTypeSupported IT.DateTimeLocal)
-      $ (H.query' cpDateTimePicker label $ setValue (Just (Right v))) >>= mustBeMounted
+      propagate
+        IT.DateTimeLocal
+        (H.query' cpDateTimePicker label $ setValue $ Just $ Right v)
     SD.Time _ (Compose (Just (Identity v))) →
-      unless (inputTypeSupported IT.DateTimeLocal)
-      $ (H.query' cpTimePicker label $ setValue (Just (Right v))) >>= mustBeMounted
+      propagate
+        IT.DateTimeLocal
+        (H.query' cpTimePicker label $ setValue $ Just $ Right v)
     SD.Date (Compose (Just (Identity v))) →
-      unless (inputTypeSupported IT.DateTimeLocal)
-      $ (H.query' cpDatePicker label $ setValue (Just (Right v))) >>= mustBeMounted
+      propagate
+        IT.DateTimeLocal
+        (H.query' cpDatePicker label $ setValue $ Just $ Right v)
     _ → pure unit
   _ → pure unit
   where
-  mustBeMounted ∷ ∀ s f g p o x. Maybe x → HalogenM s f g p o m x
-  mustBeMounted (Just x) = pure x
-  mustBeMounted _ = halt $ "children at label " <> label <> " must be mounted"
+  propagate inputType action = unless (inputTypeSupported inputType) (void action)
+
 
 type SlamDownConfig =
   { formName ∷ String
@@ -445,27 +447,43 @@ renderDropDown ident label ls sel =
       let renderedValue = SD.renderValue value
       in HH.option [ HP.selected (value == sel'), HP.value renderedValue ] [ HH.text renderedValue ]
 
-data PickerType = DatePicker | TimePicker | DateTimePicker
+data PickerType
+  = DatePicker
+  | TimePicker SD.TimePrecision
+  | DateTimePicker SD.TimePrecision
+
 textBoxToPicker ∷ ∀ f
   . BrowserFeatures
   → SD.TextBox f
   → Maybe PickerType
-textBoxToPicker features tb = if features.inputTypeSupported (SDIT.textBoxToInputType tb)
-  then Nothing
-  else case tb of
+textBoxToPicker features tb = do
+  guard (features.inputTypeSupported $ SDIT.textBoxToInputType tb)
+  case tb of
     SD.Date _ → Just DatePicker
-    SD.Time _ _ → Just TimePicker
-    SD.DateTime _ _ → Just DateTimePicker
+    SD.Time p _ → Just $ TimePicker p
+    SD.DateTime p _ → Just $ DateTimePicker p
     _ → Nothing
 
+dateFormatString :: String
+dateFormatString = "YYYY-MMMM-DD"
+
+timeFormatString :: SD.TimePrecision → String
+timeFormatString SD.Minutes = "HH:mm"
+timeFormatString SD.Seconds = "HH:mm:ss"
+
 datePickerFormat :: DatePickerF.Format
-datePickerFormat = unsafePartial fromRight $ DatePickerF.fromString "MM:DD:YYYY"
+datePickerFormat = unsafePartial fromRight
+  $ DatePickerF.fromString dateFormatString
 
-timePickerFormat :: TimePickerF.Format
-timePickerFormat = unsafePartial fromRight $ TimePickerF.fromString "hh:mm a"
+timePickerFormat :: SD.TimePrecision → TimePickerF.Format
+timePickerFormat p = unsafePartial fromRight
+  $ TimePickerF.fromString
+  $ timeFormatString p
 
-dateTimePickerFormat :: DateTimePickerF.Format
-dateTimePickerFormat = unsafePartial fromRight $ DateTimePickerF.fromString "MM:DD:YYYY, hh:mm a"
+dateTimePickerFormat :: SD.TimePrecision → DateTimePickerF.Format
+dateTimePickerFormat p = unsafePartial fromRight
+  $ DateTimePickerF.fromString
+  $ dateFormatString <> " " <> timeFormatString p
 
 renderFormElement
   ∷ ∀ m v
@@ -505,16 +523,15 @@ renderFormElement config st ident label field =
     renderPicker
       ∷ PickerType
       → HTML v m
-    renderPicker pickerType =
-      case pickerType of
-        DatePicker → HH.slot' cpDatePicker label
-          (DatePicker.picker datePickerFormat) unit $ HE.input $
+    renderPicker = case _ of
+      DatePicker →
+        HH.slot' cpDatePicker label (DatePicker.picker datePickerFormat) unit $ HE.input $
           \(NotifyChange n) → SDQ.ChangeTextBox label $ SD.Date $ value n
-        TimePicker → HH.slot' cpTimePicker label
-          (TimePicker.picker timePickerFormat) unit $ HE.input $
+      TimePicker p →
+        HH.slot' cpTimePicker label (TimePicker.picker $ timePickerFormat p) unit $ HE.input $
           \(NotifyChange n) → SDQ.ChangeTextBox label $ SD.Time SD.Minutes $ value n
-        DateTimePicker → HH.slot' cpDateTimePicker label
-          (DateTimePicker.picker dateTimePickerFormat) unit $ HE.input $
+      DateTimePicker p →
+        HH.slot' cpDateTimePicker label (DateTimePicker.picker $ dateTimePickerFormat p) unit $ HE.input $
           \(NotifyChange n) → SDQ.ChangeTextBox label $ SD.DateTime SD.Minutes $ value n
 
     renderTextInput
