@@ -159,22 +159,14 @@ updatePickers :: ∀ m v a
   → DSL v m Unit
 updatePickers {inputTypeSupported} _ label = case _ of
   SD.TextBox t → case t of
-    SD.DateTime _ (Compose (Just (Identity v))) →
-      propagate
-        IT.DateTimeLocal
-        (H.query' cpDateTimePicker label $ setValue $ Just $ Right v)
-    SD.Time _ (Compose (Just (Identity v))) →
-      propagate
-        IT.DateTimeLocal
-        (H.query' cpTimePicker label $ setValue $ Just $ Right v)
-    SD.Date (Compose (Just (Identity v))) →
-      propagate
-        IT.DateTimeLocal
-        (H.query' cpDatePicker label $ setValue $ Just $ Right v)
+    SD.DateTime _ (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+      void (H.query' cpDateTimePicker label $ setValue $ Just $ Right v)
+    SD.Time _ (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+      void (H.query' cpTimePicker label $ setValue $ Just $ Right v)
+    SD.Date (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+      void (H.query' cpDatePicker label $ setValue $ Just $ Right v)
     _ → pure unit
   _ → pure unit
-  where
-  propagate inputType action = unless (inputTypeSupported inputType) (void action)
 
 
 type SlamDownConfig =
