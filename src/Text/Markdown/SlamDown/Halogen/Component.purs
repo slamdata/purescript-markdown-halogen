@@ -14,30 +14,41 @@ module Text.Markdown.SlamDown.Halogen.Component
 import Prelude
 
 import Control.Alt ((<|>))
-
+import Control.MonadZero (guard)
+import DOM.HTML.Indexed.StepValue (StepValue(..))
 import Data.Array as A
 import Data.BrowserFeatures (BrowserFeatures)
+import Data.BrowserFeatures.InputType as IT
+import Data.Either (Either(..), fromRight)
 import Data.Either as E
+import Data.Either.Nested (Either3)
 import Data.Foldable as F
 import Data.Functor.Compose (Compose(..))
+import Data.Functor.Coproduct.Nested (Coproduct3)
 import Data.Identity (Identity(..))
 import Data.List as L
+import Data.Maybe (Maybe(..))
 import Data.Maybe as M
 import Data.Newtype (unwrap)
 import Data.Set as Set
-import Data.String as S
 import Data.StrMap as SM
+import Data.String as S
 import Data.Traversable (traverse)
 import Data.Validation.Semigroup as V
-
-import DOM.HTML.Indexed.StepValue (StepValue(..))
-
 import Halogen as H
+import Halogen.Component.ChildPath as CP
+import Halogen.Datepicker.Component.Date as DatePicker
+import Halogen.Datepicker.Component.DateTime as DateTimePicker
+import Halogen.Datepicker.Component.Time as TimePicker
+import Halogen.Datepicker.Component.Types (PickerMessage(..), setValue, value)
+import Halogen.Datepicker.Format.Date as DatePickerF
+import Halogen.Datepicker.Format.DateTime as DateTimePickerF
+import Halogen.Datepicker.Format.Time as TimePickerF
+import Halogen.HTML as HH
 import Halogen.HTML.Core as HC
 import Halogen.HTML.Events as HE
-import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
-
+import Partial.Unsafe (unsafePartial)
 import Text.Markdown.SlamDown as SD
 import Text.Markdown.SlamDown.Halogen.Component.Query as SDQ
 import Text.Markdown.SlamDown.Halogen.Component.State as SDS
@@ -62,9 +73,10 @@ defaultBrowserFeatures =
 evalSlamDownQuery
   ∷ ∀ m v
   . (SD.Value v)
-  ⇒ SDQ.SlamDownQuery v
-  ~> H.ComponentDSL (SDS.SlamDownState v) (SDQ.SlamDownQuery v) (SlamDownMessage v) m
-evalSlamDownQuery e =
+  ⇒ SlamDownConfig
+  → SDQ.SlamDownQuery v
+  ~> DSL v m
+evalSlamDownQuery config e =
   case e of
     SDQ.ChangeTextBox key tb next → do
       H.modify <<< SDS.modifyFormState $
@@ -132,15 +144,37 @@ evalSlamDownQuery e =
       pure next
 
     SDQ.SetDocument doc next → do
-      H.modify $ SDS.replaceDocument doc
+      state ← H.get
+      let newState = SDS.replaceDocument doc state
+      H.put newState
+      let formState = newState # \(SDS.SlamDownState s) → SDS.formStateFromDocument s.document
+      SM.foldM (updatePickers config.browserFeatures) unit formState
       pure next
+
+updatePickers :: ∀ m v a
+  . BrowserFeatures
+  → Unit
+  → String
+  → SD.FormFieldP Identity a
+  → DSL v m Unit
+updatePickers {inputTypeSupported} _ label = case _ of
+  SD.TextBox t → case t of
+    SD.DateTime _ (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+      void (H.query' cpDateTimePicker label $ setValue $ Just $ Right v)
+    SD.Time _ (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+      void (H.query' cpTimePicker label $ setValue $ Just $ Right v)
+    SD.Date (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+      void (H.query' cpDatePicker label $ setValue $ Just $ Right v)
+    _ → pure unit
+  _ → pure unit
+
 
 type SlamDownConfig =
   { formName ∷ String
   , browserFeatures ∷ BrowserFeatures
   }
 
-type FreshRenderer p v a = a → Fresh.Fresh (H.HTML p (SDQ.SlamDownQuery v))
+type FreshRenderer v m a = a → Fresh.Fresh (HTML v m)
 
 type FormFieldDef a =
   { label ∷ String
@@ -148,20 +182,20 @@ type FormFieldDef a =
   , field ∷ SD.FormField a
   }
 
-type FormFieldBaked p v =
+type FormFieldBaked v m =
   { label ∷ String
   , required ∷ Boolean
-  , field ∷ H.HTML p (SDQ.SlamDownQuery v)
+  , field ∷ HTML v m
   , ident ∷ M.Maybe String
   }
 
 -- | Render a `SlamDown` document into an HTML form.
 renderSlamDown
-  ∷ ∀ v
+  ∷ ∀ v m
   . (SD.Value v)
   ⇒ SlamDownConfig
   → SDS.SlamDownState v
-  → H.ComponentHTML (SDQ.SlamDownQuery v)
+  → HTML v m
 renderSlamDown config (SDS.SlamDownState state) =
   case state.document of
     SD.SlamDown bs →
@@ -173,7 +207,7 @@ renderSlamDown config (SDS.SlamDownState state) =
     defaultFormState ∷ SDS.SlamDownFormState v
     defaultFormState = SDS.formStateFromDocument state.document
 
-    h_ ∷ ∀ p a. Int → Array (H.HTML p a) → H.HTML p a
+    h_ ∷ Int → Array (HTML v m) → HTML v m
     h_ 1 = HH.h1_
     h_ 2 = HH.h2_
     h_ 3 = HH.h3_
@@ -181,11 +215,11 @@ renderSlamDown config (SDS.SlamDownState state) =
     h_ 5 = HH.h5_
     h_ _ = HH.h6_
 
-    el_ ∷ ∀ p a. SD.ListType → Array (H.HTML p a) → H.HTML p a
+    el_ ∷ SD.ListType → Array (HTML v m) → HTML v m
     el_ (SD.Bullet _)  = HH.ul_
     el_ (SD.Ordered _) = HH.ol_
 
-    renderInline ∷ ∀ p. FreshRenderer p v (SD.Inline v)
+    renderInline ∷ FreshRenderer v m (SD.Inline v)
     renderInline i =
       case i of
         SD.Str s → pure $ HH.text s
@@ -209,7 +243,7 @@ renderSlamDown config (SDS.SlamDownState state) =
         SD.FormField label required field →
           renderInlineFormField <$> bakeFormField { label, required, field }
 
-    bakeFormField ∷ ∀ p. FormFieldDef v → Fresh.Fresh (FormFieldBaked p v)
+    bakeFormField ∷ FormFieldDef v → Fresh.Fresh (FormFieldBaked v m)
     bakeFormField { label, required, field } = do
       ident ← Fresh.fresh
       let
@@ -236,7 +270,7 @@ renderSlamDown config (SDS.SlamDownState state) =
         , ident: if requiresId then M.Just ident else M.Nothing
         }
 
-    renderInlineFormField ∷ ∀ p. FormFieldBaked p v → H.HTML p (SDQ.SlamDownQuery v)
+    renderInlineFormField ∷ FormFieldBaked v m → HTML v m
     renderInlineFormField { field, label, required, ident } =
       HH.span
         [ HP.class_ (HH.ClassName "slamdown-field") ]
@@ -246,7 +280,7 @@ renderSlamDown config (SDS.SlamDownState state) =
         , field
         ]
 
-    renderFormSetFormField ∷ ∀ p. FormFieldBaked p v → H.HTML p (SDQ.SlamDownQuery v)
+    renderFormSetFormField ∷ FormFieldBaked v m → HTML v m
     renderFormSetFormField { field, label, required, ident } =
       HH.tr_
         [ HH.th_
@@ -258,7 +292,7 @@ renderSlamDown config (SDS.SlamDownState state) =
             [ field ]
         ]
 
-    renderFormSet ∷ ∀ p. FreshRenderer p v (L.List (FormFieldDef v))
+    renderFormSet ∷ FreshRenderer v m (L.List (FormFieldDef v))
     renderFormSet fs =
       HH.table [ HP.class_ (HH.ClassName "slamdown-formset") ]
         <$> traverse (map renderFormSetFormField <<< bakeFormField) (A.fromFoldable fs)
@@ -277,7 +311,7 @@ renderSlamDown config (SDS.SlamDownState state) =
         SD.Link body _ → F.foldMap stripInline body
         _ → ""
 
-    renderBlock ∷ ∀ p. FreshRenderer p v (SD.Block v)
+    renderBlock ∷ FreshRenderer v m (SD.Block v)
     renderBlock b =
       case b of
         SD.Paragraph is →
@@ -288,7 +322,7 @@ renderSlamDown config (SDS.SlamDownState state) =
           HH.blockquote_ <$> renderBlocks bs
         SD.Lst lt bss → do
           let
-            item ∷ FreshRenderer p v (L.List (SD.Block v))
+            item ∷ FreshRenderer v m (L.List (SD.Block v))
             item bs = HH.li_ <$> renderBlocks bs
           el_ lt <$> traverse item (A.fromFoldable bss)
         SD.CodeBlock _ ss →
@@ -301,7 +335,7 @@ renderSlamDown config (SDS.SlamDownState state) =
         SD.Rule →
           pure HH.hr_
 
-    renderBlocks ∷ ∀ p. L.List (SD.Block v) → Fresh.Fresh (Array (H.HTML p (SDQ.SlamDownQuery v)))
+    renderBlocks ∷ L.List (SD.Block v) → Fresh.Fresh (Array (HTML v m))
     renderBlocks = go [] L.Nil
       where
       go html fs bs =
@@ -338,85 +372,125 @@ renderSlamDown config (SDS.SlamDownState state) =
              field' → field'
 
 renderRadioButton
-  ∷ ∀ p v
+  ∷ ∀ m v
   . (SD.Value v)
   ⇒ String  -- label
   → v       -- value
-  → FreshRenderer p v Boolean
+  → FreshRenderer v m Boolean
 renderRadioButton label value checked = do
-  id ← Fresh.fresh
+  ident ← Fresh.fresh
   let renderedValue = SD.renderValue value
   pure $ HH.li_
     [ HH.input
         [ HP.checked checked
         , HP.type_ HP.InputRadio
-        , HP.id_ id
+        , HP.id_ ident
         , HP.name label
         , HP.value renderedValue
         , HE.onValueChange (HE.input_ (SDQ.ChangeRadioButton label value))
         ]
-    , HH.label [ HP.for id ] [ HH.text renderedValue ]
+    , HH.label [ HP.for ident ] [ HH.text renderedValue ]
     ]
 
 renderCheckBox
-  ∷ ∀ p v
+  ∷ ∀ m v
   . (SD.Value v)
   ⇒ String  -- label
   → v       -- value
-  → FreshRenderer p v Boolean
+  → FreshRenderer v m Boolean
 renderCheckBox label value checked = do
-  id ← Fresh.fresh
+  ident ← Fresh.fresh
   let renderedValue = SD.renderValue value
   pure $ HH.li_
     [ HH.input
         [ HP.checked checked
         , HP.type_ HP.InputCheckbox
-        , HP.id_ id
+        , HP.id_ ident
         , HP.name label
         , HP.value renderedValue
         , HE.onChecked (HE.input (SDQ.ChangeCheckBox label value))
         ]
-    , HH.label [ HP.for id ] [ HH.text renderedValue ]
+    , HH.label [ HP.for ident ] [ HH.text renderedValue ]
     ]
 
 renderDropDown
-  ∷ ∀ p v
+  ∷ ∀ m v
   . (SD.Value v)
   ⇒ String    -- id
   → String    -- label
   → L.List v  -- choices
   → M.Maybe v -- value
-  → H.HTML p (SDQ.SlamDownQuery v)
-renderDropDown id label ls sel =
+  → HTML v m
+renderDropDown ident label ls sel =
   HH.select
-    [ HP.id_ id
+    [ HP.id_ ident
     , HP.name label
     , HE.onSelectedIndexChange (HE.input (SDQ.ChangeDropDown label <<< L.index ls))
     ]
     $ A.fromFoldable $ M.maybe option option' sel <$> ls
   where
-    option ∷ v → H.HTML p (SDQ.SlamDownQuery v)
+    option ∷ v → HTML v m
     option value =
       let renderedValue = SD.renderValue value
       in HH.option [ HP.value renderedValue ] [ HH.text renderedValue ]
 
-    option' ∷ v → v → H.HTML p (SDQ.SlamDownQuery v)
+    option' ∷ v → v → HTML v m
     option' sel' value =
       let renderedValue = SD.renderValue value
       in HH.option [ HP.selected (value == sel'), HP.value renderedValue ] [ HH.text renderedValue ]
 
+data PickerType
+  = DatePicker
+  | TimePicker SD.TimePrecision
+  | DateTimePicker SD.TimePrecision
+
+textBoxToPicker ∷ ∀ f
+  . BrowserFeatures
+  → SD.TextBox f
+  → Maybe PickerType
+textBoxToPicker features tb = do
+  guard (features.inputTypeSupported $ SDIT.textBoxToInputType tb)
+  case tb of
+    SD.Date _ → Just DatePicker
+    SD.Time p _ → Just $ TimePicker p
+    SD.DateTime p _ → Just $ DateTimePicker p
+    _ → Nothing
+
+dateFormatString :: String
+dateFormatString = "YYYY-MMMM-DD"
+
+timeFormatString :: SD.TimePrecision → String
+timeFormatString SD.Minutes = "HH:mm"
+timeFormatString SD.Seconds = "HH:mm:ss"
+
+datePickerFormat :: DatePickerF.Format
+datePickerFormat = unsafePartial fromRight
+  $ DatePickerF.fromString dateFormatString
+
+timePickerFormat :: SD.TimePrecision → TimePickerF.Format
+timePickerFormat p = unsafePartial fromRight
+  $ TimePickerF.fromString
+  $ timeFormatString p
+
+dateTimePickerFormat :: SD.TimePrecision → DateTimePickerF.Format
+dateTimePickerFormat p = unsafePartial fromRight
+  $ DateTimePickerF.fromString
+  $ dateFormatString <> " " <> timeFormatString p
+
 renderFormElement
-  ∷ ∀ p v
+  ∷ ∀ m v
   . (SD.Value v)
   ⇒ SlamDownConfig
   → SDS.SlamDownStateR v
   → String -- element id
   → String -- label
-  → FreshRenderer p v (SDS.FormFieldValue v)
-renderFormElement config st id label field =
+  → FreshRenderer v m (SDS.FormFieldValue v)
+renderFormElement config st ident label field =
   case field of
     SD.TextBox tb →
-      pure $ renderTextInput tb
+      pure case textBoxToPicker config.browserFeatures tb of
+        Nothing → renderTextInput tb
+        Just pickerType → renderPicker pickerType
     SD.RadioButtons (Identity sel) (Identity ls) → do
       let
         renderRadioButton' val = renderRadioButton label val $ sel == val
@@ -432,19 +506,33 @@ renderFormElement config st id label field =
     SD.DropDown msel (Identity ls) →
       pure $
         case msel of
-          M.Nothing → renderDropDown id label ls M.Nothing
+          M.Nothing → renderDropDown ident label ls M.Nothing
           M.Just (Identity sel) →
             let options = if sel `F.elem` ls then ls else L.Cons sel ls
-            in renderDropDown id label options $ M.Just sel
+            in renderDropDown ident label options $ M.Just sel
 
   where
+    renderPicker
+      ∷ PickerType
+      → HTML v m
+    renderPicker = case _ of
+      DatePicker →
+        HH.slot' cpDatePicker label (DatePicker.picker datePickerFormat) unit $ HE.input $
+          \(NotifyChange n) → SDQ.ChangeTextBox label $ SD.Date $ value n
+      TimePicker p →
+        HH.slot' cpTimePicker label (TimePicker.picker $ timePickerFormat p) unit $ HE.input $
+          \(NotifyChange n) → SDQ.ChangeTextBox label $ SD.Time SD.Minutes $ value n
+      DateTimePicker p →
+        HH.slot' cpDateTimePicker label (DateTimePicker.picker $ dateTimePickerFormat p) unit $ HE.input $
+          \(NotifyChange n) → SDQ.ChangeTextBox label $ SD.DateTime SD.Minutes $ value n
+
     renderTextInput
       ∷ SD.TextBox (Compose M.Maybe Identity)
-      → H.HTML p (SDQ.SlamDownQuery v)
+      → HTML v m
     renderTextInput tb =
       HH.input $
         [ HP.type_ compatibleInputType
-        , HP.id_ id
+        , HP.id_ ident
         , HP.name label
         , HE.onValueInput (HE.input (SDQ.ChangeTextBox label <<< parseInput))
         ]
@@ -477,6 +565,23 @@ renderFormElement config st id label field =
 step ∷ ∀ r i. StepValue → HP.IProp (step ∷ StepValue | r) i
 step = HP.prop (HC.PropName "step")
 
+type ChildQuery = Coproduct3 DatePicker.Query TimePicker.Query DateTimePicker.Query
+type Slot = Either3 String String String
+
+cpDatePicker ∷ CP.ChildPath DatePicker.Query ChildQuery String Slot
+cpDatePicker = CP.cp1
+
+cpTimePicker ∷ CP.ChildPath TimePicker.Query ChildQuery String Slot
+cpTimePicker = CP.cp2
+
+cpDateTimePicker ∷ CP.ChildPath DateTimePicker.Query ChildQuery String Slot
+cpDateTimePicker = CP.cp3
+
+
+type HTML v m = H.ParentHTML (SDQ.SlamDownQuery v) ChildQuery Slot m
+type DSL v m = H.ParentDSL (SDS.SlamDownState v) (SDQ.SlamDownQuery v) ChildQuery Slot (SlamDownMessage v) m
+
+
 -- | Bundles up the SlamDown renderer and state machine into a Halogen component.
 slamDownComponent
   ∷ ∀ m v
@@ -484,9 +589,9 @@ slamDownComponent
   ⇒ SlamDownConfig
   → H.Component HH.HTML (SDQ.SlamDownQuery v) Unit (SlamDownMessage v) m
 slamDownComponent config =
-  H.component
+  H.parentComponent
     { render: renderSlamDown config
-    , eval: evalSlamDownQuery
+    , eval: evalSlamDownQuery config
     , initialState: const SDS.emptySlamDownState
     , receiver: const M.Nothing
     }

@@ -16,6 +16,7 @@
     "package.json"
   ],
   "dependencies": {
+    "purescript-halogen-datepicker  ": "^0.1.0",
     "purescript-browserfeatures": "^4.0.0",
     "purescript-halogen": "^2.0.1",
     "purescript-markdown": "^11.0.0",
