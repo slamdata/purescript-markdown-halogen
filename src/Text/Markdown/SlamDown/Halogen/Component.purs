@@ -449,7 +449,7 @@ textBoxToPicker ∷ ∀ f
   → SD.TextBox f
   → Maybe PickerType
 textBoxToPicker features tb = do
-  guard (features.inputTypeSupported $ SDIT.textBoxToInputType tb)
+  guard (not features.inputTypeSupported $ SDIT.textBoxToInputType tb)
   case tb of
     SD.Date _ → Just DatePicker
     SD.Time p _ → Just $ TimePicker p
