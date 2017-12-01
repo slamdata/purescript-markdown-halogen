@@ -18,7 +18,7 @@
   "dependencies": {
     "purescript-halogen-datepicker": "^0.1.0",
     "purescript-browserfeatures": "^4.0.0",
-    "purescript-halogen": "^2.0.1",
+    "purescript-halogen": "^3.0.1",
     "purescript-markdown": "^11.0.0",
     "purescript-prelude": "^3.0.0",
     "purescript-sets": "^3.0.0",
