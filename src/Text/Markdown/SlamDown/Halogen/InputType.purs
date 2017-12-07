@@ -39,7 +39,6 @@ inputTypeToHalogenInputType it =
   case it of
     IT.Color → HP.InputColor
     IT.Date → HP.InputDate
-    IT.DateTime → HP.InputDatetime
     IT.DateTimeLocal → HP.InputDatetimeLocal
     IT.Time → HP.InputTime
     IT.Month → HP.InputMonth
