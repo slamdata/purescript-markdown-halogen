@@ -159,11 +159,11 @@ updatePickers :: ∀ m v a
   → DSL v m Unit
 updatePickers {inputTypeSupported} _ label = case _ of
   SD.TextBox t → case t of
-    SD.DateTime _ (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+    SD.DateTime _ (Compose (Just (Identity v))) | not inputTypeSupported IT.DateTimeLocal →
       void (H.query' cpDateTimePicker label $ setValue $ Just $ Right v)
-    SD.Time _ (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+    SD.Time _ (Compose (Just (Identity v))) | not inputTypeSupported IT.DateTimeLocal →
       void (H.query' cpTimePicker label $ setValue $ Just $ Right v)
-    SD.Date (Compose (Just (Identity v))) | inputTypeSupported IT.DateTimeLocal →
+    SD.Date (Compose (Just (Identity v))) | not inputTypeSupported IT.DateTimeLocal →
       void (H.query' cpDatePicker label $ setValue $ Just $ Right v)
     _ → pure unit
   _ → pure unit
